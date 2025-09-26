@@ -216,8 +216,11 @@ jobs:
         run: |
           echo "🎉 Deployment completed successfully!"
           echo ""
-          echo "📊 Your Auto Shop Dashboard is now live at:"
-          echo "   ${{ needs.terraform.outputs.cloudfront_url }}"
+          echo "📊 Your Auto Shop Dashboard is available at:"
+          echo "   S3 Website: ${{ needs.terraform.outputs.s3_website_url }}"
+          echo "   CloudFront: ${{ needs.terraform.outputs.cloudfront_url }}"
+          echo ""
+          echo "💡 If CloudFront URL downloads files, use the S3 Website URL above"
           echo ""
           echo "🔗 WebSocket URL configured: ${{ needs.terraform.outputs.websocket_url }}"
           echo ""
