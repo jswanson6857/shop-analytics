@@ -50,11 +50,11 @@ resource "aws_lambda_function" "webhook_handler" {
 
   environment {
     variables = {
-      ENVIRONMENT = var.environment
-      PROJECT_NAME = var.project_name
+      ENVIRONMENT          = var.environment
+      PROJECT_NAME         = var.project_name
+      DYNAMODB_TABLE_NAME  = aws_dynamodb_table.webhook_data_v2.name  # ADD THIS LINE
     }
   }
-
   depends_on = [
     aws_iam_role_policy_attachment.lambda_basic_execution,
     aws_cloudwatch_log_group.webhook_handler_logs,

@@ -1,31 +1,27 @@
 # terraform/dynamodb.tf
 
 # DynamoDB table for webhook data
-resource "aws_dynamodb_table" "webhook_data" {
-  name           = "${var.project_name}-webhook-data"
-  billing_mode   = "PAY_PER_REQUEST"  # Cost-effective for variable loads
+resource "aws_dynamodb_table" "webhook_data_v2" {
+  name           = "${var.project_name}-webhook-data-v2"
+  billing_mode   = "PAY_PER_REQUEST"
   hash_key       = "id"
   range_key      = "timestamp"
 
-  # Primary key
   attribute {
     name = "id"
     type = "S"
   }
 
-  # Sort key (timestamp)
   attribute {
     name = "timestamp"
     type = "S"
   }
 
-  # GSI for querying by webhook source
   attribute {
     name = "source"
     type = "S"
   }
 
-  # Global Secondary Index for querying by source
   global_secondary_index {
     name     = "source-timestamp-index"
     hash_key = "source"
@@ -33,30 +29,27 @@ resource "aws_dynamodb_table" "webhook_data" {
     projection_type = "ALL"
   }
 
-  # Enable DynamoDB Streams for real-time processing
   stream_enabled   = true
   stream_view_type = "NEW_AND_OLD_IMAGES"
 
-  # TTL for automatic data cleanup (optional)
   ttl {
     attribute_name = "ttl"
     enabled        = true
   }
 
-  # Point-in-time recovery
   point_in_time_recovery {
     enabled = true
   }
 
   tags = {
-    Name = "${var.project_name}-webhook-data"
+    Name = "${var.project_name}-webhook-data-v2"
     Environment = var.environment
   }
 }
 
 # IAM policy for Lambda to access DynamoDB
-resource "aws_iam_policy" "dynamodb_lambda_policy" {
-  name        = "${var.project_name}-dynamodb-lambda-policy"
+resource "aws_iam_policy" "dynamodb_lambda_policy_v2" {
+  name        = "${var.project_name}-dynamodb-lambda-policy-v2"
   description = "IAM policy for Lambda to access DynamoDB"
 
   policy = jsonencode({
@@ -73,8 +66,8 @@ resource "aws_iam_policy" "dynamodb_lambda_policy" {
           "dynamodb:Scan"
         ]
         Resource = [
-          aws_dynamodb_table.webhook_data.arn,
-          "${aws_dynamodb_table.webhook_data.arn}/index/*"
+          aws_dynamodb_table.webhook_data_v2.arn,
+          "${aws_dynamodb_table.webhook_data_v2.arn}/index/*"
         ]
       }
     ]
@@ -82,23 +75,23 @@ resource "aws_iam_policy" "dynamodb_lambda_policy" {
 }
 
 # Attach DynamoDB policy to existing Lambda role
-resource "aws_iam_role_policy_attachment" "lambda_dynamodb_policy" {
+resource "aws_iam_role_policy_attachment" "lambda_dynamodb_policy_v2" {
   role       = aws_iam_role.lambda_role.name
-  policy_arn = aws_iam_policy.dynamodb_lambda_policy.arn
+  policy_arn = aws_iam_policy.dynamodb_lambda_policy_v2.arn
 }
 
-# Output DynamoDB table info
+# Outputs
 output "dynamodb_table_name" {
   description = "DynamoDB table name"
-  value       = aws_dynamodb_table.webhook_data.name
+  value       = aws_dynamodb_table.webhook_data_v2.name
 }
 
 output "dynamodb_table_arn" {
   description = "DynamoDB table ARN"
-  value       = aws_dynamodb_table.webhook_data.arn
+  value       = aws_dynamodb_table.webhook_data_v2.arn
 }
 
 output "dynamodb_stream_arn" {
   description = "DynamoDB stream ARN"
-  value       = aws_dynamodb_table.webhook_data.stream_arn
+  value       = aws_dynamodb_table.webhook_data_v2.stream_arn
 }
