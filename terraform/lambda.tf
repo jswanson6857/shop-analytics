@@ -1,3 +1,6 @@
+# terraform/lambda.tf
+
+# Create IAM role for Lambda
 resource "aws_iam_role" "lambda_role" {
   name = "${var.project_name}-lambda-role"
 
