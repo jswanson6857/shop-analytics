@@ -1,5 +1,5 @@
 # terraform/s3-frontend.tf
-# Add this file to your terraform directory
+# Clean configuration without Origin Access Control
 
 # Random suffix for unique bucket name
 resource "random_id" "bucket_suffix" {
@@ -55,14 +55,14 @@ resource "aws_s3_bucket_policy" "frontend" {
         Principal = "*"
         Action    = "s3:GetObject"
         Resource  = "${aws_s3_bucket.frontend.arn}/*"
-      },
+      }
     ]
   })
 
   depends_on = [aws_s3_bucket_public_access_block.frontend]
 }
 
-# CloudFront distribution
+# CloudFront distribution (pointing to S3 website endpoint)
 resource "aws_cloudfront_distribution" "frontend" {
   origin {
     domain_name = aws_s3_bucket_website_configuration.frontend.website_endpoint
