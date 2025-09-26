@@ -13,7 +13,7 @@ terraform {
   }
   
   cloud {
-    organization = "webhook-ingestion-org"
+    organization = "auto-shop-tf"
     workspaces {
       name = "webhook-ingestion"
     }
