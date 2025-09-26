@@ -50,3 +50,19 @@ variable "project_name" {
   type        = string
   default     = "webhook-ingestion"
 }
+
+# Outputs
+output "api_gateway_url" {
+  description = "API Gateway base URL"
+  value       = "https://${aws_api_gateway_rest_api.webhook_api.id}.execute-api.${var.aws_region}.amazonaws.com/${var.environment}"
+}
+
+output "webhook_endpoint" {
+  description = "Full webhook endpoint URL"
+  value       = "https://${aws_api_gateway_rest_api.webhook_api.id}.execute-api.${var.aws_region}.amazonaws.com/${var.environment}/webhook"
+}
+
+output "lambda_function_name" {
+  description = "Lambda function name"
+  value       = aws_lambda_function.webhook_handler.function_name
+}
