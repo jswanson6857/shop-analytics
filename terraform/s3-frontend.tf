@@ -130,25 +130,9 @@ resource "aws_cloudfront_distribution" "frontend" {
     cloudfront_default_certificate = true
   }
 
-# Outputs for frontend URLs
-output "s3_bucket_name" {
-  description = "Name of the S3 bucket"
-  value       = aws_s3_bucket.frontend.bucket
-}
-
-output "s3_website_url" {
-  description = "S3 website URL"
-  value       = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
-}
-
-output "cloudfront_url" {
-  description = "CloudFront distribution URL"
-  value       = "https://${aws_cloudfront_distribution.frontend.domain_name}"
-}
-
-output "cloudfront_distribution_id" {
-  description = "CloudFront distribution ID"
-  value       = aws_cloudfront_distribution.frontend.id
+  tags = {
+    Name = "${var.project_name}-frontend"
+  }
 }
 
 # Update S3 bucket policy to allow CloudFront access
@@ -179,4 +163,25 @@ resource "aws_s3_bucket_policy" "frontend_cloudfront" {
     aws_s3_bucket_public_access_block.frontend,
     aws_cloudfront_distribution.frontend
   ]
+}
+
+# Outputs for frontend URLs
+output "s3_bucket_name" {
+  description = "Name of the S3 bucket"
+  value       = aws_s3_bucket.frontend.bucket
+}
+
+output "s3_website_url" {
+  description = "S3 website URL"
+  value       = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
+}
+
+output "cloudfront_url" {
+  description = "CloudFront distribution URL"
+  value       = "https://${aws_cloudfront_distribution.frontend.domain_name}"
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID"
+  value       = aws_cloudfront_distribution.frontend.id
 }
