@@ -62,26 +62,6 @@ resource "aws_s3_bucket_policy" "frontend" {
   depends_on = [aws_s3_bucket_public_access_block.frontend]
 }
 
-# Update S3 bucket policy for public website access (remove CloudFront-specific policy)
-resource "aws_s3_bucket_policy" "frontend_public" {
-  bucket = aws_s3_bucket.frontend.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid       = "PublicReadGetObject"
-        Effect    = "Allow"
-        Principal = "*"
-        Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.frontend.arn}/*"
-      }
-    ]
-  })
-
-  depends_on = [aws_s3_bucket_public_access_block.frontend]
-}
-
 # CloudFront distribution
 resource "aws_cloudfront_distribution" "frontend" {
   origin {
