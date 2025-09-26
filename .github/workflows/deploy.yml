@@ -25,7 +25,8 @@ jobs:
     outputs:
       websocket_url: ${{ steps.tf_output.outputs.websocket_url }}
       s3_bucket: ${{ steps.tf_output.outputs.s3_bucket }}
-      s3_website_url: ${{ steps.tf_output.outputs.s3_website_url }}
+      cloudfront_url: ${{ steps.tf_output.outputs.cloudfront_url }}
+      cloudfront_distribution_id: ${{ steps.tf_output.outputs.cloudfront_distribution_id }}
       webhook_endpoint: ${{ steps.tf_output.outputs.webhook_endpoint }}
 
     steps:
@@ -108,7 +109,8 @@ jobs:
         run: |
           echo "websocket_url=$(terraform output -raw websocket_api_url)" >> $GITHUB_OUTPUT
           echo "s3_bucket=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
-          echo "s3_website_url=$(terraform output -raw s3_website_url)" >> $GITHUB_OUTPUT
+          echo "cloudfront_url=$(terraform output -raw cloudfront_url)" >> $GITHUB_OUTPUT
+          echo "cloudfront_distribution_id=$(terraform output -raw cloudfront_distribution_id)" >> $GITHUB_OUTPUT
           echo "webhook_endpoint=$(terraform output -raw webhook_endpoint)" >> $GITHUB_OUTPUT
 
   frontend:
@@ -184,23 +186,24 @@ jobs:
             --exclude "*.html" --exclude "*.css" --exclude "*.js" --exclude "*.json" \
             --cache-control "max-age=31536000"
 
-      - name: Test S3 website directly
+      - name: Invalidate CloudFront cache
         run: |
-          echo "Testing S3 website accessibility..."
-          sleep 30  # Wait for S3 to propagate
-          curl -I "${{ needs.terraform.outputs.s3_website_url }}" || echo "S3 website test failed"
+          echo "Invalidating CloudFront distribution: ${{ needs.terraform.outputs.cloudfront_distribution_id }}"
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ needs.terraform.outputs.cloudfront_distribution_id }} \
+            --paths "/*"
 
       - name: Output deployment URLs
         run: |
           echo "🎉 Deployment completed!"
           echo ""
-          echo "📊 Your Auto Shop Dashboard URLs:"
-          echo "   S3 Website: ${{ needs.terraform.outputs.s3_website_url }}"
+          echo "📊 Your Auto Shop Dashboard HTTPS URL:"
+          echo "   ${{ needs.terraform.outputs.cloudfront_url }}"
           echo ""
           echo "🔗 WebSocket URL: ${{ needs.terraform.outputs.websocket_url }}"
           echo "📡 Webhook URL: ${{ needs.terraform.outputs.webhook_endpoint }}"
           echo ""
-          echo "💡 Try the S3 Website URL first - it should display your dashboard"
+          echo "💡 Use the HTTPS CloudFront URL above - it should display your dashboard securely"
 
   test_deployment:
     name: "Test Complete Pipeline"
@@ -248,6 +251,6 @@ jobs:
 
           echo ""
           echo "🎯 Pipeline test complete!"
-          echo "📊 Dashboard URL: ${{ needs.terraform.outputs.s3_website_url }}"
+          echo "📊 Dashboard URL: ${{ needs.terraform.outputs.cloudfront_url }}"
           echo "📡 Configure your auto shop system to send webhooks to:"
           echo "   ${{ needs.terraform.outputs.webhook_endpoint }}"
