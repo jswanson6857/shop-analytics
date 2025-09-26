@@ -123,6 +123,12 @@ resource "aws_apigatewayv2_route" "disconnect_route" {
   target    = "integrations/${aws_apigatewayv2_integration.disconnect_integration.id}"
 }
 
+resource "aws_apigatewayv2_route" "default_route" {
+  api_id    = aws_apigatewayv2_api.websocket_api.id
+  route_key = "$default"
+  target    = "integrations/${aws_apigatewayv2_integration.default_integration.id}"
+}
+
 # WebSocket integrations
 resource "aws_apigatewayv2_integration" "connect_integration" {
   api_id           = aws_apigatewayv2_api.websocket_api.id
@@ -131,6 +137,12 @@ resource "aws_apigatewayv2_integration" "connect_integration" {
 }
 
 resource "aws_apigatewayv2_integration" "disconnect_integration" {
+  api_id           = aws_apigatewayv2_api.websocket_api.id
+  integration_type = "AWS_PROXY"
+  integration_uri  = aws_lambda_function.websocket_handler.invoke_arn
+}
+
+resource "aws_apigatewayv2_integration" "default_integration" {
   api_id           = aws_apigatewayv2_api.websocket_api.id
   integration_type = "AWS_PROXY"
   integration_uri  = aws_lambda_function.websocket_handler.invoke_arn

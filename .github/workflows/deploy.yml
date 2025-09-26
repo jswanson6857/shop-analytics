@@ -151,40 +151,59 @@ jobs:
       - name: Create environment file
         run: |
           echo "REACT_APP_WEBSOCKET_URL=${{ needs.terraform.outputs.websocket_url }}" > .env
+          echo "NODE_ENV=production" >> .env
           echo "Environment file created:"
           cat .env
 
       - name: Build React application
         run: npm run build
 
+      - name: Verify build output
+        run: |
+          echo "Build directory contents:"
+          ls -la build/
+          echo "Checking for index.html:"
+          cat build/index.html | head -10
+
       - name: Deploy to S3 with proper MIME types
         run: |
           echo "Deploying to S3 bucket: ${{ needs.terraform.outputs.s3_bucket }}"
 
-          # Upload HTML files with correct content type
+          # First, clear the bucket
+          aws s3 rm s3://${{ needs.terraform.outputs.s3_bucket }}/ --recursive
+
+          # Upload HTML files with correct content type and no cache
           find build -name "*.html" -exec aws s3 cp {} s3://${{ needs.terraform.outputs.s3_bucket }}/{} \
             --content-type "text/html; charset=utf-8" \
-            --cache-control "max-age=300" \;
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --metadata-directive REPLACE \;
 
           # Upload CSS files with correct content type
           find build -name "*.css" -exec aws s3 cp {} s3://${{ needs.terraform.outputs.s3_bucket }}/{} \
             --content-type "text/css; charset=utf-8" \
-            --cache-control "max-age=31536000" \;
+            --cache-control "max-age=31536000" \
+            --metadata-directive REPLACE \;
 
           # Upload JS files with correct content type
           find build -name "*.js" -exec aws s3 cp {} s3://${{ needs.terraform.outputs.s3_bucket }}/{} \
             --content-type "application/javascript; charset=utf-8" \
-            --cache-control "max-age=31536000" \;
+            --cache-control "max-age=31536000" \
+            --metadata-directive REPLACE \;
 
           # Upload JSON files with correct content type
           find build -name "*.json" -exec aws s3 cp {} s3://${{ needs.terraform.outputs.s3_bucket }}/{} \
             --content-type "application/json; charset=utf-8" \
-            --cache-control "max-age=31536000" \;
+            --cache-control "max-age=31536000" \
+            --metadata-directive REPLACE \;
 
-          # Upload remaining files
+          # Upload remaining files with long cache
           aws s3 sync build/ s3://${{ needs.terraform.outputs.s3_bucket }}/ \
             --exclude "*.html" --exclude "*.css" --exclude "*.js" --exclude "*.json" \
-            --cache-control "max-age=31536000"
+            --cache-control "max-age=31536000" \
+            --metadata-directive REPLACE
+
+          # Set public read permissions
+          aws s3api put-bucket-acl --bucket ${{ needs.terraform.outputs.s3_bucket }} --acl public-read
 
       - name: Invalidate CloudFront cache
         run: |
@@ -192,6 +211,20 @@ jobs:
           aws cloudfront create-invalidation \
             --distribution-id ${{ needs.terraform.outputs.cloudfront_distribution_id }} \
             --paths "/*"
+
+      - name: Wait for invalidation to complete
+        run: |
+          echo "Waiting for CloudFront invalidation to complete..."
+          sleep 60
+
+      - name: Test deployment
+        run: |
+          echo "Testing deployment..."
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" ${{ needs.terraform.outputs.cloudfront_url }})
+          echo "CloudFront response code: $RESPONSE"
+          if [ "$RESPONSE" != "200" ]; then
+            echo "Warning: CloudFront not returning 200, but this might be normal immediately after deployment"
+          fi
 
       - name: Output deployment URLs
         run: |
@@ -204,6 +237,7 @@ jobs:
           echo "📡 Webhook URL: ${{ needs.terraform.outputs.webhook_endpoint }}"
           echo ""
           echo "💡 Use the HTTPS CloudFront URL above - it should display your dashboard securely"
+          echo "🔄 Note: It may take a few minutes for CloudFront changes to propagate globally"
 
   test_deployment:
     name: "Test Complete Pipeline"

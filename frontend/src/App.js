@@ -1,5 +1,5 @@
-// src/App.js - Auto Shop Management Dashboard
-import React, { useState, useEffect } from "react";
+// src/App.js - Auto Shop Management Dashboard with Robust WebSocket Connection
+import React, { useState, useEffect, useCallback } from "react";
 import "./App.css";
 
 // Get WebSocket URL from environment or use placeholder
@@ -107,6 +107,8 @@ function App() {
   const [events, setEvents] = useState([]);
   const [filteredEvents, setFilteredEvents] = useState([]);
   const [connectionStatus, setConnectionStatus] = useState("disconnected");
+  const [connectionAttempts, setConnectionAttempts] = useState(0);
+  const [lastConnectionAttempt, setLastConnectionAttempt] = useState(null);
   const [filters, setFilters] = useState({
     type: "all",
     status: "all",
@@ -186,74 +188,147 @@ function App() {
     setFilteredEvents(filtered);
   }, [events, filters]);
 
-  // WebSocket connection management
-  useEffect(() => {
+  // Enhanced WebSocket connection with retry logic
+  const connectWebSocket = useCallback(() => {
     if (!WEBSOCKET_URL || WEBSOCKET_URL.includes("your-websocket-id")) {
       console.warn("WebSocket URL not configured");
       setConnectionStatus("error");
-      return;
+      return null;
     }
 
+    console.log(`Attempting WebSocket connection to: ${WEBSOCKET_URL}`);
+    setConnectionStatus("connecting");
+    setLastConnectionAttempt(new Date().toISOString());
+
+    const websocket = new WebSocket(WEBSOCKET_URL);
+
+    // Connection timeout
+    const connectionTimeout = setTimeout(() => {
+      if (websocket.readyState === WebSocket.CONNECTING) {
+        console.log("WebSocket connection timeout");
+        websocket.close();
+        setConnectionStatus("error");
+      }
+    }, 10000); // 10 second timeout
+
+    websocket.onopen = () => {
+      clearTimeout(connectionTimeout);
+      console.log("WebSocket connected successfully");
+      setConnectionStatus("connected");
+      setConnectionAttempts(0);
+
+      // Send a ping to test the connection
+      try {
+        websocket.send(
+          JSON.stringify({ type: "ping", timestamp: new Date().toISOString() })
+        );
+      } catch (e) {
+        console.warn("Could not send ping:", e);
+      }
+    };
+
+    websocket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        console.log("WebSocket message received:", message);
+
+        if (message.type === "webhook_data" && message.event === "insert") {
+          const rawWebhook = {
+            id: message.data.id,
+            timestamp: message.data.timestamp,
+            body: message.data.parsed_body,
+          };
+
+          const parsedEvent = AutoShopParser.parseWebhook(rawWebhook);
+          if (parsedEvent) {
+            console.log("Adding new event:", parsedEvent);
+            setEvents((prev) => [parsedEvent, ...prev.slice(0, 499)]);
+          }
+        }
+      } catch (error) {
+        console.error("Error parsing WebSocket message:", error);
+      }
+    };
+
+    websocket.onclose = (event) => {
+      clearTimeout(connectionTimeout);
+      console.log("WebSocket disconnected:", event.code, event.reason);
+      setConnectionStatus("disconnected");
+
+      // Don't attempt to reconnect if the close was clean (user initiated)
+      if (event.code !== 1000 && event.code !== 1001) {
+        setConnectionAttempts((prev) => prev + 1);
+      }
+    };
+
+    websocket.onerror = (error) => {
+      clearTimeout(connectionTimeout);
+      console.error("WebSocket error:", error);
+      setConnectionStatus("error");
+      setConnectionAttempts((prev) => prev + 1);
+    };
+
+    return websocket;
+  }, []);
+
+  // WebSocket connection management with automatic retry
+  useEffect(() => {
     let websocket = null;
     let reconnectTimeout = null;
 
     const connect = () => {
-      websocket = new WebSocket(WEBSOCKET_URL);
-
-      websocket.onopen = () => {
-        console.log("WebSocket connected");
-        setConnectionStatus("connected");
-      };
-
-      websocket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-
-          if (message.type === "webhook_data" && message.event === "insert") {
-            const rawWebhook = {
-              id: message.data.id,
-              timestamp: message.data.timestamp,
-              body: message.data.parsed_body,
-            };
-
-            const parsedEvent = AutoShopParser.parseWebhook(rawWebhook);
-            if (parsedEvent) {
-              setEvents((prev) => [parsedEvent, ...prev.slice(0, 499)]);
-            }
-          }
-        } catch (error) {
-          console.error("Error parsing WebSocket message:", error);
-        }
-      };
-
-      websocket.onclose = () => {
-        console.log("WebSocket disconnected");
-        setConnectionStatus("disconnected");
-
-        // Reconnect after 3 seconds
-        reconnectTimeout = setTimeout(() => {
-          connect();
-        }, 3000);
-      };
-
-      websocket.onerror = (error) => {
-        console.error("WebSocket error:", error);
-        setConnectionStatus("error");
-      };
+      websocket = connectWebSocket();
     };
 
+    // Initial connection
     connect();
+
+    // Auto-reconnect logic
+    const scheduleReconnect = () => {
+      if (connectionAttempts < 10) {
+        // Limit reconnection attempts
+        const delay = Math.min(1000 * Math.pow(2, connectionAttempts), 30000); // Exponential backoff, max 30s
+        console.log(
+          `Scheduling reconnection in ${delay}ms (attempt ${
+            connectionAttempts + 1
+          })`
+        );
+
+        reconnectTimeout = setTimeout(() => {
+          if (
+            connectionStatus === "disconnected" ||
+            connectionStatus === "error"
+          ) {
+            connect();
+          }
+        }, delay);
+      } else {
+        console.log("Max reconnection attempts reached");
+        setConnectionStatus("failed");
+      }
+    };
+
+    // Monitor connection status for auto-reconnect
+    if (connectionStatus === "disconnected" || connectionStatus === "error") {
+      scheduleReconnect();
+    }
 
     // Cleanup function
     return () => {
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout);
       }
-      if (websocket) {
-        websocket.close();
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.close(1000, "Component unmounting");
       }
     };
-  }, []); // Empty dependency array - this effect only runs once
+  }, [connectWebSocket, connectionStatus, connectionAttempts]);
+
+  // Manual reconnect function
+  const handleReconnect = () => {
+    setConnectionAttempts(0);
+    setConnectionStatus("disconnected");
+  };
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat("en-US", {
@@ -270,12 +345,33 @@ function App() {
     switch (connectionStatus) {
       case "connected":
         return "#28a745";
+      case "connecting":
+        return "#17a2b8";
       case "disconnected":
         return "#ffc107";
       case "error":
         return "#dc3545";
+      case "failed":
+        return "#6c757d";
       default:
         return "#6c757d";
+    }
+  };
+
+  const getStatusText = () => {
+    switch (connectionStatus) {
+      case "connected":
+        return "Connected";
+      case "connecting":
+        return "Connecting...";
+      case "disconnected":
+        return "Disconnected";
+      case "error":
+        return "Connection Error";
+      case "failed":
+        return "Connection Failed";
+      default:
+        return "Unknown";
     }
   };
 
@@ -290,9 +386,49 @@ function App() {
               className="status-indicator"
               style={{ backgroundColor: getStatusColor() }}
             ></div>
-            <span>{connectionStatus}</span>
+            <span>{getStatusText()}</span>
+            {(connectionStatus === "error" ||
+              connectionStatus === "failed") && (
+              <button
+                onClick={handleReconnect}
+                style={{
+                  marginLeft: "10px",
+                  padding: "4px 8px",
+                  fontSize: "12px",
+                  background: "rgba(255,255,255,0.2)",
+                  border: "1px solid rgba(255,255,255,0.3)",
+                  color: "white",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                }}
+              >
+                Retry
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Connection Debug Info */}
+        {process.env.NODE_ENV === "development" && (
+          <div
+            style={{
+              background: "rgba(255,255,255,0.1)",
+              padding: "10px",
+              borderRadius: "6px",
+              fontSize: "12px",
+              marginBottom: "1rem",
+            }}
+          >
+            <div>WebSocket URL: {WEBSOCKET_URL}</div>
+            <div>Connection Attempts: {connectionAttempts}</div>
+            {lastConnectionAttempt && (
+              <div>
+                Last Attempt:{" "}
+                {new Date(lastConnectionAttempt).toLocaleTimeString()}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Statistics Cards */}
         <div className="stats-grid">
@@ -385,6 +521,13 @@ function App() {
                 environment variable
               </div>
             )}
+            {connectionStatus === "error" || connectionStatus === "failed" ? (
+              <div className="setup-warning">
+                <strong>Connection Issue:</strong> Unable to connect to
+                WebSocket server. Check your network connection and try
+                refreshing the page.
+              </div>
+            ) : null}
           </div>
         ) : (
           filteredEvents.map((event) => (
