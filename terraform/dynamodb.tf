@@ -74,9 +74,9 @@ resource "aws_iam_policy" "dynamodb_lambda_policy_v2" {
   })
 }
 
-# Attach DynamoDB policy to existing Lambda role
+# Attach DynamoDB policy to existing Lambda role (use role name directly)
 resource "aws_iam_role_policy_attachment" "lambda_dynamodb_policy_v2" {
-  role       = aws_iam_role.lambda_role.name
+  role       = "webhook-ingestion-lambda-role"  # Direct role name
   policy_arn = aws_iam_policy.dynamodb_lambda_policy_v2.arn
 }
 
