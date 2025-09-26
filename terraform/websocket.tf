@@ -29,7 +29,7 @@ resource "aws_apigatewayv2_stage" "websocket_stage_v2" {
 resource "aws_lambda_function" "websocket_handler_v2" {
   filename         = data.archive_file.websocket_lambda_zip_v2.output_path
   function_name    = "${var.project_name}-websocket-handler-v2"
-  role            = aws_iam_role.lambda_role.arn
+  role            = "arn:aws:iam::095289934716:role/webhook-ingestion-lambda-role"
   handler         = "websocket_handler.lambda_handler"
   source_code_hash = data.archive_file.websocket_lambda_zip_v2.output_base64sha256
   runtime         = "python3.11"
@@ -93,7 +93,7 @@ resource "aws_iam_policy" "websocket_lambda_policy_v2" {
 
 # Attach WebSocket policy to existing Lambda role
 resource "aws_iam_role_policy_attachment" "websocket_lambda_policy_v2" {
-  role       = aws_iam_role.lambda_role.name
+  role       = "webhook-ingestion-lambda-role"
   policy_arn = aws_iam_policy.websocket_lambda_policy_v2.arn
 }
 
@@ -136,7 +136,7 @@ resource "aws_lambda_permission" "websocket_api_lambda_connect_v2" {
 resource "aws_lambda_function" "websocket_broadcast_v2" {
   filename         = data.archive_file.broadcast_lambda_zip_v2.output_path
   function_name    = "${var.project_name}-websocket-broadcast-v2"
-  role            = aws_iam_role.lambda_role.arn
+  role            = "arn:aws:iam::095289934716:role/webhook-ingestion-lambda-role"
   handler         = "broadcast_handler.lambda_handler"
   source_code_hash = data.archive_file.broadcast_lambda_zip_v2.output_base64sha256
   runtime         = "python3.11"
@@ -222,7 +222,7 @@ resource "aws_iam_policy" "websocket_connections_policy_v2" {
 
 # Attach connections policy to existing Lambda role
 resource "aws_iam_role_policy_attachment" "websocket_connections_policy_v2" {
-  role       = aws_iam_role.lambda_role.name
+  role       = "webhook-ingestion-lambda-role"
   policy_arn = aws_iam_policy.websocket_connections_policy_v2.arn
 }
 
