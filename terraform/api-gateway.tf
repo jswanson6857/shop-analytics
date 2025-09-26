@@ -7,14 +7,12 @@ resource "aws_api_gateway_rest_api" "webhook_api" {
   }
 }
 
-# Create API Gateway Resource
 resource "aws_api_gateway_resource" "webhook_resource" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   parent_id   = aws_api_gateway_rest_api.webhook_api.root_resource_id
   path_part   = "webhook"
 }
 
-# Create API Gateway Method
 resource "aws_api_gateway_method" "webhook_method" {
   rest_api_id   = aws_api_gateway_rest_api.webhook_api.id
   resource_id   = aws_api_gateway_resource.webhook_resource.id
@@ -22,7 +20,6 @@ resource "aws_api_gateway_method" "webhook_method" {
   authorization = "NONE"
 }
 
-# Enable CORS preflight
 resource "aws_api_gateway_method" "webhook_options" {
   rest_api_id   = aws_api_gateway_rest_api.webhook_api.id
   resource_id   = aws_api_gateway_resource.webhook_resource.id
@@ -30,7 +27,6 @@ resource "aws_api_gateway_method" "webhook_options" {
   authorization = "NONE"
 }
 
-# Integration with Lambda
 resource "aws_api_gateway_integration" "webhook_integration" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   resource_id = aws_api_gateway_resource.webhook_resource.id
@@ -41,7 +37,6 @@ resource "aws_api_gateway_integration" "webhook_integration" {
   uri                    = aws_lambda_function.webhook_handler.invoke_arn
 }
 
-# CORS integration
 resource "aws_api_gateway_integration" "webhook_options_integration" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   resource_id = aws_api_gateway_resource.webhook_resource.id
@@ -55,7 +50,6 @@ resource "aws_api_gateway_integration" "webhook_options_integration" {
   }
 }
 
-# Method response for POST
 resource "aws_api_gateway_method_response" "webhook_response" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   resource_id = aws_api_gateway_resource.webhook_resource.id
@@ -67,7 +61,6 @@ resource "aws_api_gateway_method_response" "webhook_response" {
   }
 }
 
-# Method response for OPTIONS (CORS)
 resource "aws_api_gateway_method_response" "webhook_options_response" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   resource_id = aws_api_gateway_resource.webhook_resource.id
@@ -81,7 +74,6 @@ resource "aws_api_gateway_method_response" "webhook_options_response" {
   }
 }
 
-# Integration response for OPTIONS
 resource "aws_api_gateway_integration_response" "webhook_options_integration_response" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   resource_id = aws_api_gateway_resource.webhook_resource.id
@@ -95,8 +87,6 @@ resource "aws_api_gateway_integration_response" "webhook_options_integration_res
   }
 }
 
-# Deploy API Gateway
-# Deploy API Gateway
 resource "aws_api_gateway_deployment" "webhook_api_deployment" {
   depends_on = [
     aws_api_gateway_method.webhook_method,
@@ -120,14 +110,12 @@ resource "aws_api_gateway_deployment" "webhook_api_deployment" {
   }
 }
 
-# Add a separate stage resource
 resource "aws_api_gateway_stage" "webhook_api_stage" {
   deployment_id = aws_api_gateway_deployment.webhook_api_deployment.id
   rest_api_id   = aws_api_gateway_rest_api.webhook_api.id
   stage_name    = var.environment
 }
 
-# Lambda permission for API Gateway
 resource "aws_lambda_permission" "api_gateway_lambda" {
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
