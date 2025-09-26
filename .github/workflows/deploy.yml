@@ -101,7 +101,12 @@ jobs:
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: terraform apply -auto-approve -input=false
+        run: |
+          # Try to remove problematic OAC resource if it exists
+          terraform state rm aws_cloudfront_origin_access_control.frontend || true
+
+          # Apply the configuration
+          terraform apply -auto-approve -input=false
 
       - name: Get Terraform Outputs
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -163,23 +168,42 @@ jobs:
       - name: Deploy to S3
         run: |
           echo "Deploying to S3 bucket: ${{ needs.terraform.outputs.s3_bucket }}"
+
+          # Upload all files with proper MIME types
           aws s3 sync build/ s3://${{ needs.terraform.outputs.s3_bucket }} --delete
 
-          # Set cache headers for static assets
-          aws s3 cp s3://${{ needs.terraform.outputs.s3_bucket }} s3://${{ needs.terraform.outputs.s3_bucket }} \
-            --recursive \
+          # Set specific content types for web files
+          aws s3 cp s3://${{ needs.terraform.outputs.s3_bucket }}/index.html s3://${{ needs.terraform.outputs.s3_bucket }}/index.html \
             --metadata-directive REPLACE \
-            --cache-control max-age=31536000 \
-            --exclude "*.html" \
-            --exclude "service-worker.js"
+            --content-type "text/html" \
+            --cache-control "max-age=300"
 
-          # Set short cache for HTML files
-          aws s3 cp s3://${{ needs.terraform.outputs.s3_bucket }} s3://${{ needs.terraform.outputs.s3_bucket }} \
+          # Set content type for CSS files
+          aws s3 cp s3://${{ needs.terraform.outputs.s3_bucket }}/ s3://${{ needs.terraform.outputs.s3_bucket }}/ \
             --recursive \
+            --exclude "*" \
+            --include "*.css" \
             --metadata-directive REPLACE \
-            --cache-control max-age=300 \
-            --include "*.html" \
-            --include "service-worker.js"
+            --content-type "text/css" \
+            --cache-control "max-age=31536000"
+
+          # Set content type for JS files
+          aws s3 cp s3://${{ needs.terraform.outputs.s3_bucket }}/ s3://${{ needs.terraform.outputs.s3_bucket }}/ \
+            --recursive \
+            --exclude "*" \
+            --include "*.js" \
+            --metadata-directive REPLACE \
+            --content-type "application/javascript" \
+            --cache-control "max-age=31536000"
+
+          # Set content type for JSON files
+          aws s3 cp s3://${{ needs.terraform.outputs.s3_bucket }}/ s3://${{ needs.terraform.outputs.s3_bucket }}/ \
+            --recursive \
+            --exclude "*" \
+            --include "*.json" \
+            --metadata-directive REPLACE \
+            --content-type "application/json" \
+            --cache-control "max-age=31536000"
 
       - name: Invalidate CloudFront cache
         run: |
