@@ -96,6 +96,7 @@ resource "aws_api_gateway_integration_response" "webhook_options_integration_res
 }
 
 # Deploy API Gateway
+# Deploy API Gateway
 resource "aws_api_gateway_deployment" "webhook_api_deployment" {
   depends_on = [
     aws_api_gateway_method.webhook_method,
@@ -105,11 +106,25 @@ resource "aws_api_gateway_deployment" "webhook_api_deployment" {
   ]
 
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
-  stage_name  = var.environment
+
+  triggers = {
+    redeployment = sha1(jsonencode([
+      aws_api_gateway_resource.webhook_resource.id,
+      aws_api_gateway_method.webhook_method.id,
+      aws_api_gateway_integration.webhook_integration.id,
+    ]))
+  }
 
   lifecycle {
     create_before_destroy = true
   }
+}
+
+# Add a separate stage resource
+resource "aws_api_gateway_stage" "webhook_api_stage" {
+  deployment_id = aws_api_gateway_deployment.webhook_api_deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.webhook_api.id
+  stage_name    = var.environment
 }
 
 # Lambda permission for API Gateway

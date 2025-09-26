@@ -54,12 +54,12 @@ variable "project_name" {
 # Outputs
 output "api_gateway_url" {
   description = "API Gateway base URL"
-  value       = "https://${aws_api_gateway_rest_api.webhook_api.id}.execute-api.${var.aws_region}.amazonaws.com/${var.environment}"
+  value       = "https://${aws_api_gateway_rest_api.webhook_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.webhook_api_stage.stage_name}"
 }
 
 output "webhook_endpoint" {
   description = "Full webhook endpoint URL"
-  value       = "https://${aws_api_gateway_rest_api.webhook_api.id}.execute-api.${var.aws_region}.amazonaws.com/${var.environment}/webhook"
+  value       = "https://${aws_api_gateway_rest_api.webhook_api.id}.execute-api.${var.aws_region}.amazonaws.com/${aws_api_gateway_stage.webhook_api_stage.stage_name}/webhook"
 }
 
 output "lambda_function_name" {

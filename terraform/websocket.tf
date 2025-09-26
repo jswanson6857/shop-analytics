@@ -29,7 +29,7 @@ resource "aws_apigatewayv2_stage" "websocket_stage" {
 resource "aws_lambda_function" "websocket_handler" {
   filename         = data.archive_file.websocket_lambda_zip.output_path
   function_name    = "${var.project_name}-websocket-handler"
-  role            = aws_iam_role.websocket_lambda_role.arn
+  role            = aws_iam_role.lambda_role.arn
   handler         = "websocket_handler.lambda_handler"
   source_code_hash = data.archive_file.websocket_lambda_zip.output_base64sha256
   runtime         = "python3.11"
@@ -44,7 +44,6 @@ resource "aws_lambda_function" "websocket_handler" {
   }
 
   depends_on = [
-    aws_iam_role_policy_attachment.websocket_lambda_basic_execution,
     aws_cloudwatch_log_group.websocket_handler_logs,
   ]
 }
@@ -61,30 +60,6 @@ data "archive_file" "websocket_lambda_zip" {
 resource "aws_cloudwatch_log_group" "websocket_handler_logs" {
   name              = "/aws/lambda/${var.project_name}-websocket-handler"
   retention_in_days = 7
-}
-
-# IAM role for WebSocket Lambda
-resource "aws_iam_role" "websocket_lambda_role" {
-  name = "${var.project_name}-websocket-lambda-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "lambda.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-# Attach basic execution policy to WebSocket Lambda role
-resource "aws_iam_role_policy_attachment" "websocket_lambda_basic_execution" {
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-  role       = aws_iam_role.websocket_lambda_role.name
 }
 
 # IAM policy for WebSocket Lambda to manage API Gateway connections
@@ -116,9 +91,9 @@ resource "aws_iam_policy" "websocket_lambda_policy" {
   })
 }
 
-# Attach WebSocket policy to Lambda role
+# Attach WebSocket policy to existing Lambda role
 resource "aws_iam_role_policy_attachment" "websocket_lambda_policy" {
-  role       = aws_iam_role.websocket_lambda_role.name
+  role       = aws_iam_role.lambda_role.name
   policy_arn = aws_iam_policy.websocket_lambda_policy.arn
 }
 
@@ -169,7 +144,7 @@ resource "aws_lambda_event_source_mapping" "dynamodb_stream" {
 resource "aws_lambda_function" "websocket_broadcast" {
   filename         = data.archive_file.broadcast_lambda_zip.output_path
   function_name    = "${var.project_name}-websocket-broadcast"
-  role            = aws_iam_role.websocket_lambda_role.arn
+  role            = aws_iam_role.lambda_role.arn
   handler         = "broadcast_handler.lambda_handler"
   source_code_hash = data.archive_file.broadcast_lambda_zip.output_base64sha256
   runtime         = "python3.11"
@@ -184,7 +159,6 @@ resource "aws_lambda_function" "websocket_broadcast" {
   }
 
   depends_on = [
-    aws_iam_role_policy_attachment.websocket_lambda_basic_execution,
     aws_cloudwatch_log_group.broadcast_handler_logs,
   ]
 }
@@ -247,9 +221,9 @@ resource "aws_iam_policy" "websocket_connections_policy" {
   })
 }
 
-# Attach connections policy to WebSocket Lambda role
+# Attach connections policy to existing Lambda role
 resource "aws_iam_role_policy_attachment" "websocket_connections_policy" {
-  role       = aws_iam_role.websocket_lambda_role.name
+  role       = aws_iam_role.lambda_role.name
   policy_arn = aws_iam_policy.websocket_connections_policy.arn
 }
 
