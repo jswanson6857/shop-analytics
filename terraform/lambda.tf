@@ -1,7 +1,8 @@
-# terraform/lambda.tf
-# Only update the existing Lambda function
+resource "aws_cloudwatch_log_group" "webhook_handler_logs" {
+  name              = "/aws/lambda/${var.project_name}-webhook-handler"
+  retention_in_days = 7
+}
 
-# Package Lambda function code
 data "archive_file" "lambda_zip" {
   type        = "zip"
   output_path = "${path.module}/lambda_function.zip"
@@ -9,11 +10,10 @@ data "archive_file" "lambda_zip" {
   output_file_mode = "0666"
 }
 
-# Update existing Lambda function (don't recreate)
 resource "aws_lambda_function" "webhook_handler" {
   filename         = data.archive_file.lambda_zip.output_path
   function_name    = "${var.project_name}-webhook-handler"
-  role            = data.aws_iam_role.existing_lambda_role.arn
+  role            = aws_iam_role.lambda_role.arn
   handler         = "main.lambda_handler"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
   runtime         = "python3.11"
@@ -23,7 +23,12 @@ resource "aws_lambda_function" "webhook_handler" {
     variables = {
       ENVIRONMENT          = var.environment
       PROJECT_NAME         = var.project_name
-      DYNAMODB_TABLE_NAME  = data.aws_dynamodb_table.existing_webhook_data.name
+      DYNAMODB_TABLE_NAME  = aws_dynamodb_table.webhook_data.name
     }
   }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.lambda_basic_execution,
+    aws_cloudwatch_log_group.webhook_handler_logs,
+  ]
 }

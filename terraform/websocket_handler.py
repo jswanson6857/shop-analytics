@@ -19,7 +19,7 @@ def lambda_handler(event, context):
     
     try:
         # Get environment variables
-        connection_table_name = os.environ.get('CONNECTION_TABLE_NAME', 'webhook-ingestion-websocket-connections')
+        connection_table_name = os.environ.get('CONNECTION_TABLE_NAME')
         
         # Get connection info
         connection_id = event['requestContext']['connectionId']

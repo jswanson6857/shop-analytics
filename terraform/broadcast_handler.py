@@ -11,8 +11,6 @@ logger.setLevel(logging.INFO)
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
-apigateway = boto3.client('apigatewaymanagementapi', 
-                         endpoint_url=os.environ.get('WEBSOCKET_API_ENDPOINT'))
 
 def lambda_handler(event, context):
     """
@@ -20,7 +18,7 @@ def lambda_handler(event, context):
     """
     
     try:
-        connection_table_name = os.environ.get('CONNECTION_TABLE_NAME', 'webhook-ingestion-websocket-connections')
+        connection_table_name = os.environ.get('CONNECTION_TABLE_NAME')
         websocket_endpoint = os.environ.get('WEBSOCKET_API_ENDPOINT')
         
         logger.info(f"Processing {len(event.get('Records', []))} DynamoDB stream records")
