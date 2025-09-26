@@ -11,7 +11,7 @@ on:
       destroy:
         description: "Destroy infrastructure"
         required: false
-        default: "false"
+        default: false
         type: boolean
 
 env:
@@ -34,24 +34,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false
+
+      - name: Setup Terraform Cloud Credentials
+        run: |
+          cat > ~/.terraformrc << EOF
+          credentials "app.terraform.io" {
+            token = "${{ secrets.TF_API_TOKEN }}"
+          }
+          EOF
 
       - name: Terraform Init
         run: terraform init
 
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
+        env:
+          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
   terraform:
     name: "Deploy Infrastructure"
@@ -74,18 +77,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
+
+      - name: Setup Terraform Cloud Credentials
+        run: |
+          cat > ~/.terraformrc << EOF
+          credentials "app.terraform.io" {
+            token = "${{ secrets.TF_API_TOKEN }}"
+          }
+          EOF
 
       - name: Terraform Format
         id: fmt
@@ -104,6 +108,9 @@ jobs:
         id: plan
         if: github.event_name == 'pull_request'
         run: terraform plan -no-color -input=false
+        env:
+          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         continue-on-error: true
 
       - name: Update Pull Request
@@ -143,6 +150,9 @@ jobs:
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -input=false
+        env:
+          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
       - name: Get Terraform Outputs
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -328,4 +338,4 @@ jobs:
           echo "🎯 Pipeline test complete!"
           echo "📊 Dashboard URL: ${{ needs.terraform.outputs.cloudfront_url }}"
           echo "📡 Configure your auto shop system to send webhooks to:"
-          echo "   ${{ needs.terraform.outputs.webhook_endpoint }}
+          echo "   ${{ needs.terraform.outputs.webhook_endpoint }}"
