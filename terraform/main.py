@@ -76,8 +76,6 @@ def lambda_handler(event, context):
             webhook_source = 'stripe'  # Stripe objects
         elif parsed_body and 'repository' in parsed_body:
             webhook_source = 'github'  # GitHub webhooks
-        elif parsed_body and parsed_body.get('data', {}).get('repairOrderNumber'):
-            webhook_source = 'automotive'  # Automotive service management
         
         # Prepare DynamoDB item
         webhook_item = {
