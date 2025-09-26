@@ -662,7 +662,7 @@ function RepairOrderCard({ event, formatCurrency, formatTime }) {
   );
 }
 
-// Appointment Card Component
+// Appointment Card
 function AppointmentCard({ event, formatTime }) {
   return (
     <>
