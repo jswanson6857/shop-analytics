@@ -22,8 +22,3 @@ output "websocket_api_url" {
   description = "WebSocket API URL"
   value       = aws_apigatewayv2_stage.websocket_stage.invoke_url
 }
-
-output "terraform_state_bucket" {
-  description = "S3 bucket for Terraform state"
-  value       = aws_s3_bucket.terraform_state.bucket
-}
