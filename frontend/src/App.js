@@ -1,4 +1,4 @@
-// src/App.js - Clean Auto Shop Dashboard with Fixed Parser
+// src/App.js - Efficient Auto Shop Dashboard for Hundreds of Records
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
@@ -9,23 +9,19 @@ const REST_API_URL =
   process.env.REACT_APP_REST_API_URL ||
   "https://x21d6cpmv6.execute-api.us-east-1.amazonaws.com/dev";
 
-// Add debug logging
-console.log("🔧 WebSocket URL:", WEBSOCKET_URL);
-console.log("🔧 REST API URL:", REST_API_URL);
-
 // Debug logging
 const log = (message, data = null) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${message}`, data || "");
 };
 
-// Fixed Auto Shop Data Parser
+// Enhanced Auto Shop Data Parser
 class AutoShopParser {
   static parseWebhook(webhook) {
     try {
       let data, event;
 
-      // Handle different webhook structures - FIXED for your DynamoDB data
+      // Handle different webhook structures
       if (webhook.body?.data) {
         data = webhook.body.data;
         event = webhook.body.event || "";
@@ -33,7 +29,6 @@ class AutoShopParser {
         data = webhook.data;
         event = webhook.event || "";
       } else if (webhook.parsed_body?.data) {
-        // This handles your DynamoDB structure
         data = webhook.parsed_body.data;
         event = webhook.parsed_body.event || "";
       } else if (webhook.parsed_body) {
@@ -50,7 +45,6 @@ class AutoShopParser {
         return null;
       }
 
-      // All your data appears to be repair orders, so parse as such
       return this.parseRepairOrder(data, event, webhook);
     } catch (error) {
       log("Parser error", error);
@@ -70,12 +64,9 @@ class AutoShopParser {
   static normalizeAmount(amount) {
     if (!amount || amount === null || amount === undefined) return 0;
     if (isNaN(amount)) return 0;
-
     const num = parseFloat(amount);
     if (num === 0) return 0;
-
-    // Your data is in cents, convert to dollars
-    return num / 100;
+    return num / 100; // Convert cents to dollars
   }
 
   static parseRepairOrder(data, event, webhook) {
@@ -84,7 +75,7 @@ class AutoShopParser {
     const customLabel =
       this.safeGet(data, "repairOrderCustomLabel.name") || null;
 
-    // Handle financial data - your values are in cents
+    // Handle financial data
     const financials = {
       laborSales: this.normalizeAmount(data.laborSales),
       partsSales: this.normalizeAmount(data.partsSales),
@@ -98,8 +89,6 @@ class AutoShopParser {
 
     const jobs = data.jobs || [];
     const concerns = data.customerConcerns || [];
-
-    // Calculate job stats
     const jobStats = this.calculateJobStats(jobs);
     const balanceDue = financials.totalSales - financials.amountPaid;
 
@@ -114,6 +103,7 @@ class AutoShopParser {
       balanceDue: balanceDue,
       totalJobs: jobs.length,
       jobStats: jobStats,
+      jobs: jobs,
       customerConcerns: concerns.map((c) => c.concern || c).filter(Boolean),
       priority: this.determinePriority(balanceDue, status),
       event: event,
@@ -134,7 +124,6 @@ class AutoShopParser {
     if (!Array.isArray(jobs)) return { authorized: 0, pending: 0, declined: 0 };
 
     const stats = { authorized: 0, pending: 0, declined: 0 };
-
     jobs.forEach((job) => {
       if (job.authorized === true) {
         stats.authorized++;
@@ -144,7 +133,6 @@ class AutoShopParser {
         stats.pending++;
       }
     });
-
     return stats;
   }
 
@@ -163,25 +151,50 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState("disconnected");
   const [connectionAttempts, setConnectionAttempts] = useState(0);
   const [historicalDataLoaded, setHistoricalDataLoaded] = useState(false);
+  const [expandedCards, setExpandedCards] = useState(new Set());
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
+
+  // Filter states
   const [filters, setFilters] = useState({
+    search: "",
     type: "all",
     status: "all",
     priority: "all",
-    search: "",
+    technician: "all",
   });
+
   const [stats, setStats] = useState({
     total: 0,
     today: 0,
     repairOrders: 0,
-    appointments: 0,
-    highPriority: 0,
     totalRevenue: 0,
     pendingBalance: 0,
+    highPriority: 0,
   });
 
   const websocketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const mountedRef = useRef(true);
+
+  // Set page title and favicon
+  useEffect(() => {
+    document.title = "Auto Shop Dashboard - Real-Time Orders";
+
+    // Create favicon
+    const link = document.createElement("link");
+    link.rel = "icon";
+    link.href =
+      'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🔧</text></svg>';
+
+    // Remove any existing favicons
+    const existingLinks = document.querySelectorAll("link[rel*='icon']");
+    existingLinks.forEach((link) => link.remove());
+
+    document.head.appendChild(link);
+  }, []);
 
   // Load historical data
   useEffect(() => {
@@ -235,7 +248,6 @@ function App() {
     const today = new Date().toISOString().split("T")[0];
     const todayEvents = events.filter((e) => e.timestamp?.startsWith(today));
     const repairOrders = events.filter((e) => e.type === "repair-order");
-    const appointments = events.filter((e) => e.type === "appointment");
     const highPriority = events.filter((e) => e.priority === "high");
 
     const totalRevenue = repairOrders.reduce(
@@ -251,40 +263,54 @@ function App() {
       total: events.length,
       today: todayEvents.length,
       repairOrders: repairOrders.length,
-      appointments: appointments.length,
-      highPriority: highPriority.length,
       totalRevenue: totalRevenue,
       pendingBalance: pendingBalance,
+      highPriority: highPriority.length,
     });
   }, [events]);
 
-  // Apply filters
+  // Apply filters and search
   useEffect(() => {
     let filtered = [...events];
 
+    // Apply search filter
+    if (filters.search.trim()) {
+      const searchLower = filters.search.toLowerCase();
+      filtered = filtered.filter(
+        (e) =>
+          e.orderNumber?.toString().includes(searchLower) ||
+          e.status?.toLowerCase().includes(searchLower) ||
+          e.customLabel?.toLowerCase().includes(searchLower) ||
+          e.event?.toLowerCase().includes(searchLower) ||
+          e.customerId?.toString().includes(searchLower) ||
+          e.vehicleId?.toString().includes(searchLower) ||
+          e.jobs?.some((job) => job.name?.toLowerCase().includes(searchLower))
+      );
+    }
+
+    // Apply other filters
     if (filters.type !== "all") {
       filtered = filtered.filter((e) => e.type === filters.type);
     }
     if (filters.priority !== "all") {
       filtered = filtered.filter((e) => e.priority === filters.priority);
     }
-    if (filters.search.trim()) {
-      const searchLower = filters.search.toLowerCase();
+    if (filters.status !== "all") {
+      const statusFilter = filters.status.toLowerCase();
       filtered = filtered.filter(
         (e) =>
-          e.orderNumber?.toString().includes(searchLower) ||
-          e.title?.toLowerCase().includes(searchLower) ||
-          e.status?.toLowerCase().includes(searchLower)
+          e.status?.toLowerCase().includes(statusFilter) ||
+          e.customLabel?.toLowerCase().includes(statusFilter)
       );
     }
 
     setFilteredEvents(filtered);
+    setCurrentPage(1); // Reset to first page when filters change
   }, [events, filters]);
 
-  // WebSocket connection
+  // WebSocket connection logic (same as before)
   const connectWebSocket = useCallback(() => {
     if (!mountedRef.current || !WEBSOCKET_URL) return;
-
     if (websocketRef.current?.readyState === WebSocket.OPEN) {
       log("WebSocket already connected");
       return;
@@ -391,7 +417,7 @@ function App() {
 
   // Helper functions
   const formatCurrency = (amount) => {
-    if (!amount || isNaN(amount)) return "";
+    if (!amount || isNaN(amount)) return "$0.00";
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
@@ -401,7 +427,22 @@ function App() {
   const formatTime = (dateString) => {
     if (!dateString) return "";
     try {
-      return new Date(dateString).toLocaleString();
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffMinutes = Math.floor((now - date) / (1000 * 60));
+
+      if (diffMinutes < 1) return "Just now";
+      if (diffMinutes < 60) return `${diffMinutes} min ago`;
+      if (diffMinutes < 1440)
+        return `${Math.floor(diffMinutes / 60)} hour${
+          Math.floor(diffMinutes / 60) !== 1 ? "s" : ""
+        } ago`;
+
+      return (
+        date.toLocaleDateString() +
+        " " +
+        date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      );
     } catch {
       return dateString;
     }
@@ -431,21 +472,43 @@ function App() {
       case "connecting":
         return "Connecting...";
       case "loading-history":
-        return "Loading data...";
+        return "Loading...";
       case "disconnected":
         return "Disconnected";
       case "error":
-        return "Connection Error";
+        return "Error";
       default:
         return "Unknown";
     }
   };
 
+  const toggleExpand = (eventId) => {
+    setExpandedCards((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(eventId)) {
+        newSet.delete(eventId);
+      } else {
+        newSet.add(eventId);
+      }
+      return newSet;
+    });
+  };
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredEvents.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentEvents = filteredEvents.slice(startIndex, endIndex);
+
+  const goToPage = (page) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
   return (
     <div className="auto-shop-dashboard">
       <header className="dashboard-header">
-        <div className="header-content">
-          <h1>Auto Shop Real-Time Dashboard</h1>
+        <div className="header-row">
+          <h1>🔧 Auto Shop Dashboard</h1>
           <div className="connection-status">
             <div
               className="status-indicator"
@@ -455,45 +518,22 @@ function App() {
           </div>
         </div>
 
-        {/* Statistics Cards */}
-        <div className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-value">{stats.total}</div>
-            <div className="stat-label">Total Events</div>
+        <div className="filters-row">
+          <div className="search-box">
+            <span className="search-icon">🔍</span>
+            <input
+              type="text"
+              className="search-input"
+              placeholder="Search by order #, customer, tech, service writer, job name..."
+              value={filters.search}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, search: e.target.value }))
+              }
+            />
           </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.today}</div>
-            <div className="stat-label">Today</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.repairOrders}</div>
-            <div className="stat-label">Repair Orders</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.appointments}</div>
-            <div className="stat-label">Appointments</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.highPriority}</div>
-            <div className="stat-label">High Priority</div>
-          </div>
-          <div className="stat-card revenue">
-            <div className="stat-value">
-              {formatCurrency(stats.totalRevenue)}
-            </div>
-            <div className="stat-label">Total Revenue</div>
-          </div>
-          <div className="stat-card balance">
-            <div className="stat-value">
-              {formatCurrency(stats.pendingBalance)}
-            </div>
-            <div className="stat-label">Pending Balance</div>
-          </div>
-        </div>
 
-        {/* Filters */}
-        <div className="filters">
           <select
+            className="filter-select"
             value={filters.type}
             onChange={(e) =>
               setFilters((prev) => ({ ...prev, type: e.target.value }))
@@ -501,13 +541,24 @@ function App() {
           >
             <option value="all">All Types</option>
             <option value="repair-order">Repair Orders</option>
-            <option value="appointment">Appointments</option>
-            <option value="inspection">Inspections</option>
-            <option value="status-update">Status Updates</option>
-            <option value="generic">Other Events</option>
           </select>
 
           <select
+            className="filter-select"
+            value={filters.status}
+            onChange={(e) =>
+              setFilters((prev) => ({ ...prev, status: e.target.value }))
+            }
+          >
+            <option value="all">All Status</option>
+            <option value="work-in-progress">Work In Progress</option>
+            <option value="complete">Complete</option>
+            <option value="arrived">Arrived</option>
+            <option value="quoting">Quoting</option>
+          </select>
+
+          <select
+            className="filter-select"
             value={filters.priority}
             onChange={(e) =>
               setFilters((prev) => ({ ...prev, priority: e.target.value }))
@@ -518,30 +569,48 @@ function App() {
             <option value="medium">Medium Priority</option>
             <option value="normal">Normal Priority</option>
           </select>
+        </div>
 
-          <input
-            type="text"
-            placeholder="Search orders, customers, jobs..."
-            value={filters.search}
-            onChange={(e) =>
-              setFilters((prev) => ({ ...prev, search: e.target.value }))
-            }
-            className="search-input"
-          />
-
-          <button onClick={() => setEvents([])} className="clear-button">
-            Clear History
-          </button>
+        <div className="stats-bar">
+          <div className="stat-item">
+            <div className="stat-value">{stats.total}</div>
+            <div className="stat-label">Total Orders</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-value">{stats.today}</div>
+            <div className="stat-label">Today</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-value">
+              {formatCurrency(stats.totalRevenue)}
+            </div>
+            <div className="stat-label">Total Revenue</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-value">
+              {formatCurrency(stats.pendingBalance)}
+            </div>
+            <div className="stat-label">Pending Balance</div>
+          </div>
+          <div className="stat-item">
+            <div className="stat-value">{stats.highPriority}</div>
+            <div className="stat-label">High Priority</div>
+          </div>
         </div>
       </header>
 
       <main className="events-container">
-        {filteredEvents.length === 0 ? (
-          <div className="empty-state">
+        {currentEvents.length === 0 ? (
+          <div className="no-data">
             {connectionStatus === "loading-history" ? (
               <>
                 <h2>Loading historical data...</h2>
                 <p>Fetching recent auto shop events from the database.</p>
+              </>
+            ) : filteredEvents.length === 0 && events.length > 0 ? (
+              <>
+                <h2>No results found</h2>
+                <p>Try adjusting your search or filter criteria.</p>
               </>
             ) : (
               <>
@@ -550,184 +619,374 @@ function App() {
                   Real-time data will appear here when your auto shop system
                   sends webhooks.
                 </p>
-                {events.length > 0 && (
-                  <p>
-                    📊 {events.length} events loaded. Check your filters above.
-                  </p>
-                )}
               </>
-            )}
-
-            {!WEBSOCKET_URL && (
-              <div className="setup-warning">
-                <strong>Setup Required:</strong> WebSocket URL not configured.
-              </div>
-            )}
-            {!REST_API_URL && (
-              <div className="setup-warning">
-                <strong>Setup Required:</strong> REST API URL not configured.
-              </div>
             )}
           </div>
         ) : (
-          filteredEvents.map((event) => (
-            <EventCard
-              key={`${event.type}-${event.id}-${event.timestamp}`}
-              event={event}
-              formatCurrency={formatCurrency}
-              formatTime={formatTime}
-            />
-          ))
+          <>
+            <div className="pagination-controls">
+              <div className="page-info">
+                Showing {startIndex + 1}-
+                {Math.min(endIndex, filteredEvents.length)} of{" "}
+                {filteredEvents.length} orders
+              </div>
+              <div className="page-buttons">
+                <button
+                  className="page-btn"
+                  disabled={currentPage === 1}
+                  onClick={() => goToPage(currentPage - 1)}
+                >
+                  ← Prev
+                </button>
+
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+
+                  return (
+                    <button
+                      key={pageNum}
+                      className={`page-btn ${
+                        currentPage === pageNum ? "active" : ""
+                      }`}
+                      onClick={() => goToPage(pageNum)}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+
+                <button
+                  className="page-btn"
+                  disabled={currentPage === totalPages}
+                  onClick={() => goToPage(currentPage + 1)}
+                >
+                  Next →
+                </button>
+              </div>
+              <select
+                className="filter-select"
+                value={itemsPerPage}
+                onChange={(e) => setItemsPerPage(parseInt(e.target.value))}
+                style={{ width: "auto" }}
+              >
+                <option value={20}>20 per page</option>
+                <option value={50}>50 per page</option>
+                <option value={100}>100 per page</option>
+              </select>
+            </div>
+
+            <div className="events-list">
+              {currentEvents.map((event) => (
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  isExpanded={expandedCards.has(event.id)}
+                  onToggleExpand={() => toggleExpand(event.id)}
+                  formatCurrency={formatCurrency}
+                  formatTime={formatTime}
+                />
+              ))}
+            </div>
+
+            <div className="pagination-controls">
+              <div className="page-info">
+                Showing {startIndex + 1}-
+                {Math.min(endIndex, filteredEvents.length)} of{" "}
+                {filteredEvents.length} orders
+              </div>
+              <div className="page-buttons">
+                <button
+                  className="page-btn"
+                  disabled={currentPage === 1}
+                  onClick={() => goToPage(currentPage - 1)}
+                >
+                  ← Prev
+                </button>
+                <button
+                  className="page-btn"
+                  disabled={currentPage === totalPages}
+                  onClick={() => goToPage(currentPage + 1)}
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </main>
     </div>
   );
 }
 
-// Event Card Component
-function EventCard({ event, formatCurrency, formatTime }) {
-  const getEventTitle = () => {
-    return `Repair Order #${event.orderNumber}`;
+// Enhanced Event Card Component
+function EventCard({
+  event,
+  isExpanded,
+  onToggleExpand,
+  formatCurrency,
+  formatTime,
+}) {
+  const getEventIcon = () => {
+    if (event.status?.toLowerCase().includes("complete")) return "✅";
+    if (event.status?.toLowerCase().includes("arrived")) return "🚗";
+    if (event.customLabel?.toLowerCase().includes("quoting")) return "💰";
+    return "🔄";
   };
 
-  const getStatusBadge = () => {
-    const status = event.status || "Unknown";
-    const statusClass = status.toLowerCase().replace(/\s+/g, "-");
+  const getTechName = () => {
+    // When tech names are available, they'll be here
+    if (event.technicianId) {
+      return `Tech ${event.technicianId}`;
+    }
+    return "Unassigned";
+  };
 
-    return (
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-        <span className={`status-badge ${statusClass}`}>{status}</span>
-        {event.customLabel && event.customLabel !== status && (
-          <span className="custom-label">{event.customLabel}</span>
-        )}
-      </div>
-    );
+  const getServiceWriterName = () => {
+    // When service writer names are available, they'll be here
+    if (event.serviceWriterId) {
+      return `Writer ${event.serviceWriterId}`;
+    }
+    return "Unknown Writer";
   };
 
   return (
-    <div className={`event-card ${event.type} priority-${event.priority}`}>
-      <div className="event-header">
+    <div
+      className={`event-card priority-${event.priority}`}
+      onClick={onToggleExpand}
+      style={{ cursor: "pointer" }}
+    >
+      <div className="event-main">
+        <div className="event-icon">{getEventIcon()}</div>
         <div className="event-title">
-          <h3>{getEventTitle()}</h3>
-          {getStatusBadge()}
+          <h4>Repair Order #{event.orderNumber}</h4>
+          <div className="event-subtitle">
+            <span>👤 {getTechName()}</span>
+            <span>📝 {getServiceWriterName()}</span>
+            <span>🕐 {formatTime(event.timestamp)}</span>
+            <span>🆔 Customer: {event.customerId}</span>
+          </div>
         </div>
-        <div className="event-meta">
-          <span className="timestamp">{formatTime(event.timestamp)}</span>
-          {event.priority !== "normal" && (
-            <span className={`priority-badge priority-${event.priority}`}>
-              {event.priority.toUpperCase()}
-            </span>
+        <div className="status-badges">
+          <span className="badge status">{event.status}</span>
+          {event.customLabel && (
+            <span className="badge custom">{event.customLabel}</span>
           )}
+          {event.priority !== "normal" && (
+            <span className="badge priority">{event.priority}</span>
+          )}
+        </div>
+        <div className="event-amount">
+          <div
+            className={`amount-value ${
+              event.balanceDue > 0 ? "amount-due" : "amount-paid"
+            }`}
+          >
+            {formatCurrency(
+              event.balanceDue > 0 ? event.balanceDue : event.totalSales
+            )}
+          </div>
+          <div className="amount-label">
+            {event.balanceDue > 0
+              ? "Balance Due"
+              : event.amountPaid > 0
+              ? "Paid"
+              : "Total Sales"}
+          </div>
         </div>
       </div>
 
       <div className="event-details">
-        {/* Financial Summary */}
-        <div className="financial-summary">
-          <strong>Financial Summary</strong>
-          <div className="financial-grid">
-            {event.laborSales > 0 && (
-              <div className="financial-item">
-                <strong>Labor:</strong>
-                <span>{formatCurrency(event.laborSales)}</span>
-              </div>
-            )}
-            {event.partsSales > 0 && (
-              <div className="financial-item">
-                <strong>Parts:</strong>
-                <span>{formatCurrency(event.partsSales)}</span>
-              </div>
-            )}
-            {event.subletSales > 0 && (
-              <div className="financial-item">
-                <strong>Sublet:</strong>
-                <span>{formatCurrency(event.subletSales)}</span>
-              </div>
-            )}
-            {event.feeTotal > 0 && (
-              <div className="financial-item">
-                <strong>Fees:</strong>
-                <span>{formatCurrency(event.feeTotal)}</span>
-              </div>
-            )}
-            {event.taxes > 0 && (
-              <div className="financial-item">
-                <strong>Taxes:</strong>
-                <span>{formatCurrency(event.taxes)}</span>
-              </div>
-            )}
+        <div className="detail-group">
+          <div className="detail-row">
+            <span className="detail-label">Total Sales:</span>
+            <span className="detail-value">
+              {formatCurrency(event.totalSales)}
+            </span>
           </div>
+          <div className="detail-row">
+            <span className="detail-label">Amount Paid:</span>
+            <span className="detail-value">
+              {formatCurrency(event.amountPaid)}
+            </span>
+          </div>
+        </div>
 
-          <div className="total-section">
-            <div className="total-item">
-              <strong>Total Sales:</strong>
-              <span className="total-amount">
-                {formatCurrency(event.totalSales)}
+        <div className="detail-group">
+          <div className="detail-row">
+            <span className="detail-label">Labor:</span>
+            <span className="detail-value">
+              {formatCurrency(event.laborSales)}
+            </span>
+          </div>
+          {event.feeTotal > 0 && (
+            <div className="detail-row">
+              <span className="detail-label">Fees:</span>
+              <span className="detail-value">
+                {formatCurrency(event.feeTotal)}
               </span>
             </div>
-            {event.amountPaid > 0 && (
-              <div className="total-item">
-                <strong>Amount Paid:</strong>
-                <span className="paid-amount">
-                  {formatCurrency(event.amountPaid)}
+          )}
+          {event.taxes > 0 && (
+            <div className="detail-row">
+              <span className="detail-label">Taxes:</span>
+              <span className="detail-value">
+                {formatCurrency(event.taxes)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="detail-group">
+          <div
+            style={{
+              marginBottom: "0.5rem",
+              fontWeight: 600,
+              color: "#495057",
+            }}
+          >
+            Jobs Summary:
+          </div>
+          <div className="jobs-summary">
+            <div className="job-stat">
+              <span className="job-count">{event.totalJobs}</span>
+              <span>Total</span>
+            </div>
+            {event.jobStats?.authorized > 0 && (
+              <div className="job-stat">
+                <span className="job-count authorized">
+                  {event.jobStats.authorized}
                 </span>
+                <span>Authorized</span>
               </div>
             )}
-            {event.balanceDue > 0 && (
-              <div className="total-item">
-                <strong>Balance Due:</strong>
-                <span className="balance-due">
-                  {formatCurrency(event.balanceDue)}
+            {event.jobStats?.pending > 0 && (
+              <div className="job-stat">
+                <span className="job-count pending">
+                  {event.jobStats.pending}
                 </span>
+                <span>Pending</span>
+              </div>
+            )}
+            {event.jobStats?.declined > 0 && (
+              <div className="job-stat">
+                <span className="job-count declined">
+                  {event.jobStats.declined}
+                </span>
+                <span>Declined</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Job Summary */}
-        {event.totalJobs > 0 && event.jobStats && (
-          <div className="job-summary">
-            <strong>Jobs Summary</strong>
-            <div className="job-stats">
-              <div className="job-stat">
-                <span className="job-count">{event.totalJobs}</span>
-                <span className="job-label">Total</span>
-              </div>
-              <div className="job-stat authorized">
-                <span className="job-count">{event.jobStats.authorized}</span>
-                <span className="job-label">Authorized</span>
-              </div>
-              <div className="job-stat pending">
-                <span className="job-count">{event.jobStats.pending}</span>
-                <span className="job-label">Pending</span>
-              </div>
-              <div className="job-stat declined">
-                <span className="job-count">{event.jobStats.declined}</span>
-                <span className="job-label">Declined</span>
-              </div>
-            </div>
+        <div className="detail-group">
+          <div className="detail-row">
+            <span className="detail-label">Vehicle ID:</span>
+            <span className="detail-value">{event.vehicleId}</span>
           </div>
-        )}
-
-        {/* Customer Concerns */}
-        {event.customerConcerns && event.customerConcerns.length > 0 && (
-          <div className="customer-concerns">
-            <strong>Customer Concerns:</strong>
-            <ul>
-              {event.customerConcerns.map((concern, idx) => (
-                <li key={idx}>{concern}</li>
-              ))}
-            </ul>
+          <div className="detail-row">
+            <span className="detail-label">Created:</span>
+            <span className="detail-value">
+              {formatTime(event.createdDate)}
+            </span>
           </div>
-        )}
-
-        {/* Event Footer */}
-        {event.event && (
-          <div className="event-footer">
-            <small>{event.event}</small>
-          </div>
-        )}
+        </div>
       </div>
+
+      {isExpanded && (
+        <div className="expandable-details expanded">
+          <div className="job-details">
+            <div
+              style={{
+                fontWeight: 600,
+                marginBottom: "1rem",
+                color: "#495057",
+              }}
+            >
+              📋 Detailed Job Breakdown:
+            </div>
+
+            {event.jobs && event.jobs.length > 0 ? (
+              event.jobs.map((job, index) => (
+                <div
+                  key={job.id || index}
+                  className={`job-item ${
+                    job.authorized === true
+                      ? "authorized"
+                      : job.authorized === false
+                      ? "declined"
+                      : "pending"
+                  }`}
+                >
+                  <div className="job-header">
+                    <span className="job-name">
+                      Job: "{job.name}"{" "}
+                      {job.authorized === true
+                        ? "✅"
+                        : job.authorized === false
+                        ? "❌"
+                        : "⏳"}
+                    </span>
+                    <span
+                      className={`badge ${
+                        job.authorized === true
+                          ? "authorized"
+                          : job.authorized === false
+                          ? "declined"
+                          : "pending"
+                      }`}
+                    >
+                      {job.authorized === true
+                        ? "Authorized"
+                        : job.authorized === false
+                        ? "Declined"
+                        : "Pending"}
+                    </span>
+                  </div>
+                  <div className="job-financials">
+                    <span>
+                      Labor: {formatCurrency(job.laborTotal || 0)} (
+                      {job.laborHours || 0}h)
+                    </span>
+                    <span>Parts: {formatCurrency(job.partsTotal || 0)}</span>
+                    <span>Fees: {formatCurrency(job.feeTotal || 0)}</span>
+                    <span>Subtotal: {formatCurrency(job.subtotal || 0)}</span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div
+                style={{
+                  textAlign: "center",
+                  color: "#666",
+                  fontStyle: "italic",
+                  padding: "1rem",
+                }}
+              >
+                No detailed job information available
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <button
+        className="expand-toggle"
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleExpand();
+        }}
+      >
+        {isExpanded ? "▲ Hide" : "▼ Show"} detailed job breakdown
+      </button>
     </div>
   );
 }

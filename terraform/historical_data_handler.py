@@ -1,4 +1,4 @@
-# terraform/historical_data_handler.py - FINAL FIXED VERSION
+# terraform/historical_data_handler.py - FIXED for your data structure
 import json
 import logging
 import os
@@ -35,6 +35,7 @@ def get_cors_headers():
 def lambda_handler(event, context):
     """
     AWS Lambda function to serve historical webhook data for initial page load
+    FIXED to handle your actual DynamoDB structure
     """
     
     try:
@@ -68,7 +69,7 @@ def lambda_handler(event, context):
         
         logger.info(f"Fetching last {hours_back} hours of data, limit {limit} items")
         
-        # Query DynamoDB for recent data - FIXED: Remove invalid ScanIndexForward parameter
+        # Query DynamoDB for recent data
         try:
             response = table.scan(
                 FilterExpression='#ts >= :start_time',
@@ -79,33 +80,36 @@ def lambda_handler(event, context):
                     ':start_time': start_time.isoformat()
                 },
                 Limit=limit
-                # REMOVED: ScanIndexForward=False (not valid for scan operation)
             )
             
             items = response.get('Items', [])
             
-            # Sort by timestamp descending (newest first) - do this in Python instead
+            # Sort by timestamp descending (newest first)
             items.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
             
             logger.info(f"Found {len(items)} historical items")
             
-            # Transform DynamoDB items to webhook format expected by frontend
+            # Transform DynamoDB items to the format your frontend expects
             historical_events = []
             for item in items:
                 try:
-                    # Convert DynamoDB item to webhook format
+                    # Check if this item has parsed_body with actual repair order data
+                    parsed_body = item.get('parsed_body')
+                    
+                    if not parsed_body:
+                        logger.debug(f"Skipping item {item.get('id')} - no parsed_body")
+                        continue
+                    
+                    # Your data structure: parsed_body contains {"data": {...}, "event": "..."}
+                    # We need to send this in the format your frontend parser expects
                     webhook_event = {
                         'id': item.get('id'),
                         'timestamp': item.get('timestamp'),
-                        'body': {
-                            'data': item.get('parsed_body'),
-                            'event': f"Historical: {item.get('source', 'unknown')} event"
-                        }
+                        'parsed_body': parsed_body  # Keep the original structure
                     }
                     
-                    # Only include items that have valid parsed_body
-                    if webhook_event['body']['data']:
-                        historical_events.append(webhook_event)
+                    historical_events.append(webhook_event)
+                    logger.debug(f"Added webhook event for repair order: {parsed_body.get('data', {}).get('repairOrderNumber')}")
                         
                 except Exception as e:
                     logger.warning(f"Error transforming item {item.get('id', 'unknown')}: {str(e)}")
