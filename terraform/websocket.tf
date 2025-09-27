@@ -7,14 +7,6 @@ resource "aws_apigatewayv2_api" "websocket_api" {
   protocol_type             = "WEBSOCKET"
   route_selection_expression = "$request.body.action"
   description               = "WebSocket API for real-time webhook data"
-  
-  cors_configuration {
-    allow_credentials = false
-    allow_headers     = ["*"]
-    allow_methods     = ["*"]
-    allow_origins     = ["*"]
-    max_age          = 300
-  }
 }
 
 # WebSocket stage with enhanced configuration
@@ -353,6 +345,16 @@ resource "aws_api_gateway_integration_response" "data_options_integration_respon
     "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
     "method.response.header.Access-Control-Allow-Origin"  = "'*'"
   }
+}
+
+# Lambda permission for historical data API
+resource "aws_lambda_permission" "historical_data_api_lambda" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.historical_data_handler.function_name
+  principal     = "apigateway.amazonaws.com"
+
+  source_arn = "${aws_api_gateway_rest_api.webhook_api.execution_arn}/*/*"
 }
 
 # Outputs for debugging
