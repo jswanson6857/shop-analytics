@@ -1,4 +1,4 @@
-# terraform/websocket.tf - FIXED VERSION with CORS
+# terraform/websocket.tf - FINAL FIXED VERSION with FORCED DEPLOYMENT
 # WebSocket API Gateway for real-time updates
 
 # WebSocket API Gateway
@@ -236,7 +236,7 @@ resource "aws_cloudwatch_log_group" "historical_data_logs" {
   retention_in_days = 7
 }
 
-# FIXED: Add /data endpoint to existing REST API with proper CORS
+# CRITICAL: /data endpoint with COMPLETE CORS configuration
 resource "aws_api_gateway_resource" "data_resource" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   parent_id   = aws_api_gateway_rest_api.webhook_api.root_resource_id
@@ -257,6 +257,7 @@ resource "aws_api_gateway_method" "data_options" {
   authorization = "NONE"
 }
 
+# GET integration
 resource "aws_api_gateway_integration" "data_integration" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   resource_id = aws_api_gateway_resource.data_resource.id
@@ -267,6 +268,7 @@ resource "aws_api_gateway_integration" "data_integration" {
   uri                    = aws_lambda_function.historical_data_handler.invoke_arn
 }
 
+# OPTIONS integration (CRITICAL for CORS preflight)
 resource "aws_api_gateway_integration" "data_options_integration" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   resource_id = aws_api_gateway_resource.data_resource.id
@@ -280,7 +282,7 @@ resource "aws_api_gateway_integration" "data_options_integration" {
   }
 }
 
-# FIXED: Proper CORS method responses
+# Method responses - GET
 resource "aws_api_gateway_method_response" "data_response_200" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   resource_id = aws_api_gateway_resource.data_resource.id
@@ -305,6 +307,7 @@ resource "aws_api_gateway_method_response" "data_response_500" {
   }
 }
 
+# Method responses - OPTIONS (CRITICAL)
 resource "aws_api_gateway_method_response" "data_options_response" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   resource_id = aws_api_gateway_resource.data_resource.id
@@ -318,36 +321,7 @@ resource "aws_api_gateway_method_response" "data_options_response" {
   }
 }
 
-# FIXED: Proper CORS integration responses
-resource "aws_api_gateway_integration_response" "data_integration_response_200" {
-  rest_api_id = aws_api_gateway_rest_api.webhook_api.id
-  resource_id = aws_api_gateway_resource.data_resource.id
-  http_method = aws_api_gateway_method.data_method.http_method
-  status_code = "200"
-
-  response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin"  = "'*'"
-    "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
-    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-  }
-
-  depends_on = [aws_api_gateway_integration.data_integration]
-}
-
-resource "aws_api_gateway_integration_response" "data_integration_response_500" {
-  rest_api_id = aws_api_gateway_rest_api.webhook_api.id
-  resource_id = aws_api_gateway_resource.data_resource.id
-  http_method = aws_api_gateway_method.data_method.http_method
-  status_code = "500"
-
-  response_parameters = {
-    "method.response.header.Access-Control-Allow-Origin" = "'*'"
-  }
-
-  selection_pattern = ".*"
-  depends_on = [aws_api_gateway_integration.data_integration]
-}
-
+# Integration responses - OPTIONS (THE CRITICAL MISSING PIECE)
 resource "aws_api_gateway_integration_response" "data_options_integration_response" {
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
   resource_id = aws_api_gateway_resource.data_resource.id

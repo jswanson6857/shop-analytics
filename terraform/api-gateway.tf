@@ -87,7 +87,7 @@ resource "aws_api_gateway_integration_response" "webhook_options_integration_res
   }
 }
 
-# FIXED: Updated deployment to include all resources
+# FORCE NEW DEPLOYMENT by adding timestamp trigger
 resource "aws_api_gateway_deployment" "webhook_api_deployment" {
   depends_on = [
     # Webhook endpoints
@@ -96,20 +96,19 @@ resource "aws_api_gateway_deployment" "webhook_api_deployment" {
     aws_api_gateway_method.webhook_options,
     aws_api_gateway_integration.webhook_options_integration,
     
-    # Data endpoints (from websocket.tf)
+    # Data endpoints (CRITICAL: these must be deployed)
     aws_api_gateway_method.data_method,
     aws_api_gateway_integration.data_integration,
     aws_api_gateway_method.data_options,
     aws_api_gateway_integration.data_options_integration,
-    aws_api_gateway_integration_response.data_integration_response_200,
-    aws_api_gateway_integration_response.data_integration_response_500,
+    aws_api_gateway_method_response.data_options_response,
     aws_api_gateway_integration_response.data_options_integration_response,
   ]
 
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
 
   triggers = {
-    # Updated to include data endpoint changes
+    # FORCE redeployment with timestamp to ensure CORS changes are applied
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.webhook_resource.id,
       aws_api_gateway_method.webhook_method.id,
@@ -119,6 +118,10 @@ resource "aws_api_gateway_deployment" "webhook_api_deployment" {
       aws_api_gateway_integration.data_integration.id,
       aws_api_gateway_method.data_options.id,
       aws_api_gateway_integration.data_options_integration.id,
+      aws_api_gateway_method_response.data_options_response.id,
+      aws_api_gateway_integration_response.data_options_integration_response.id,
+      # Add timestamp to force deployment
+      timestamp()
     ]))
   }
 
