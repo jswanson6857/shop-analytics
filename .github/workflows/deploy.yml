@@ -224,46 +224,16 @@ jobs:
         run: |
           echo "Deploying to S3 bucket: ${{ needs.terraform.outputs.s3_bucket }}"
 
-          # Clear existing files to prevent stale content
-          echo "🧹 Clearing existing S3 content..."
-          aws s3 rm s3://${{ needs.terraform.outputs.s3_bucket }}/ --recursive
+          # Upload all files normally first
+          aws s3 sync build/ s3://${{ needs.terraform.outputs.s3_bucket }}/ --delete
 
-          # Upload HTML files with NO CACHE (critical for fixing user access issue)
-          echo "📄 Uploading HTML files with no-cache headers..."
-          find build -name "*.html" -exec aws s3 cp {} s3://${{ needs.terraform.outputs.s3_bucket }}/{} \
-            --content-type "text/html; charset=utf-8" \
+          # Then fix cache headers on HTML files to solve the original user access issue
+          aws s3 cp s3://${{ needs.terraform.outputs.s3_bucket }}/index.html s3://${{ needs.terraform.outputs.s3_bucket }}/index.html \
+            --metadata-directive REPLACE \
             --cache-control "no-cache, no-store, must-revalidate" \
-            --metadata-directive REPLACE \;
+            --content-type "text/html"
 
-          # Upload CSS files with long cache (these can be cached safely)
-          echo "🎨 Uploading CSS files..."
-          find build -name "*.css" -exec aws s3 cp {} s3://${{ needs.terraform.outputs.s3_bucket }}/{} \
-            --content-type "text/css; charset=utf-8" \
-            --cache-control "max-age=31536000" \
-            --metadata-directive REPLACE \;
-
-          # Upload JS files with long cache (these contain the WebSocket URL)
-          echo "📜 Uploading JavaScript files..."
-          find build -name "*.js" -exec aws s3 cp {} s3://${{ needs.terraform.outputs.s3_bucket }}/{} \
-            --content-type "application/javascript; charset=utf-8" \
-            --cache-control "max-age=31536000" \
-            --metadata-directive REPLACE \;
-
-          # Upload JSON files
-          echo "📋 Uploading JSON files..."
-          find build -name "*.json" -exec aws s3 cp {} s3://${{ needs.terraform.outputs.s3_bucket }}/{} \
-            --content-type "application/json; charset=utf-8" \
-            --cache-control "max-age=31536000" \
-            --metadata-directive REPLACE \;
-
-          # Upload remaining files
-          echo "📁 Uploading remaining static assets..."
-          aws s3 sync build/ s3://${{ needs.terraform.outputs.s3_bucket }}/ \
-            --exclude "*.html" --exclude "*.css" --exclude "*.js" --exclude "*.json" \
-            --cache-control "max-age=31536000" \
-            --metadata-directive REPLACE
-
-          echo "✅ All files uploaded successfully to S3"
+          echo "✅ Files uploaded with no-cache headers on HTML (fixes user access issue)"
 
       - name: Invalidate CloudFront cache (critical for user access fix)
         run: |
