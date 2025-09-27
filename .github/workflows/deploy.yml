@@ -212,9 +212,9 @@ jobs:
       - name: Verify WebSocket URL is embedded in build
         run: |
           echo "Verifying WebSocket URL is embedded in the build..."
-          if grep -r "wss://" build/static/js/ > /dev/null; then
+          if find build/static/js/ -name "*.js" -exec grep -l "wss://" {} \; | head -1 > /dev/null; then
             echo "✅ WebSocket URL found in JavaScript bundle"
-            grep -r "wss://" build/static/js/ | head -1
+            echo "Found in file: $(find build/static/js/ -name "*.js" -exec grep -l "wss://" {} \; | head -1)"
           else
             echo "❌ WebSocket URL NOT found in build - this will cause the original issue!"
             exit 1
