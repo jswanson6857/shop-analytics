@@ -101,6 +101,10 @@ resource "aws_cloudfront_distribution" "frontend" {
   tags = {
     Name = "${var.project_name}-frontend"
   }
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # Outputs
