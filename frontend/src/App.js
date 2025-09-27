@@ -1,5 +1,5 @@
-// src/App.js - Auto Shop Management Dashboard with Robust WebSocket Connection
-import React, { useState, useEffect, useCallback } from "react";
+// src/App.js - Auto Shop Management Dashboard with FIXED WebSocket Connection
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
 // Get WebSocket URL from environment or use placeholder
@@ -125,6 +125,11 @@ function App() {
     pendingBalance: 0,
   });
 
+  // Use refs to avoid infinite reconnection loops
+  const websocketRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+  const isManuallyClosingRef = useRef(false);
+
   // Calculate statistics
   useEffect(() => {
     const today = new Date().toISOString().split("T")[0];
@@ -188,49 +193,75 @@ function App() {
     setFilteredEvents(filtered);
   }, [events, filters]);
 
-  // Enhanced WebSocket connection with retry logic
+  // FIXED: WebSocket connection function with proper cleanup
   const connectWebSocket = useCallback(() => {
-    if (!WEBSOCKET_URL || WEBSOCKET_URL.includes("your-websocket-id")) {
-      console.warn("WebSocket URL not configured");
-      setConnectionStatus("error");
-      return null;
+    // Don't create new connection if one exists and is connecting/open
+    if (
+      websocketRef.current &&
+      (websocketRef.current.readyState === WebSocket.CONNECTING ||
+        websocketRef.current.readyState === WebSocket.OPEN)
+    ) {
+      console.log(
+        "WebSocket already connecting/connected, skipping new connection"
+      );
+      return;
     }
 
-    console.log(`Attempting WebSocket connection to: ${WEBSOCKET_URL}`);
+    if (!WEBSOCKET_URL || WEBSOCKET_URL.includes("your-websocket-id")) {
+      console.warn(
+        "WebSocket URL not configured properly. Current URL:",
+        WEBSOCKET_URL
+      );
+      setConnectionStatus("error");
+      return;
+    }
+
+    // Clean up existing connection
+    if (websocketRef.current) {
+      isManuallyClosingRef.current = true;
+      websocketRef.current.close();
+      websocketRef.current = null;
+    }
+
+    console.log(`🔌 Attempting WebSocket connection to: ${WEBSOCKET_URL}`);
     setConnectionStatus("connecting");
     setLastConnectionAttempt(new Date().toISOString());
 
     const websocket = new WebSocket(WEBSOCKET_URL);
+    websocketRef.current = websocket;
 
     // Connection timeout
     const connectionTimeout = setTimeout(() => {
       if (websocket.readyState === WebSocket.CONNECTING) {
-        console.log("WebSocket connection timeout");
+        console.log("❌ WebSocket connection timeout");
+        isManuallyClosingRef.current = true;
         websocket.close();
         setConnectionStatus("error");
       }
-    }, 10000); // 10 second timeout
+    }, 15000); // 15 second timeout
 
     websocket.onopen = () => {
       clearTimeout(connectionTimeout);
-      console.log("WebSocket connected successfully");
+      console.log("✅ WebSocket connected successfully!");
       setConnectionStatus("connected");
       setConnectionAttempts(0);
+      isManuallyClosingRef.current = false;
 
       // Send a ping to test the connection
       try {
         websocket.send(
           JSON.stringify({ type: "ping", timestamp: new Date().toISOString() })
         );
+        console.log("📡 Ping sent to server");
       } catch (e) {
-        console.warn("Could not send ping:", e);
+        console.warn("⚠️ Could not send ping:", e);
       }
     };
 
     websocket.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        console.log("WebSocket message received:", message);
+        console.log("📨 WebSocket message received:", message);
 
         if (message.type === "webhook_data" && message.event === "insert") {
           const rawWebhook = {
@@ -241,91 +272,115 @@ function App() {
 
           const parsedEvent = AutoShopParser.parseWebhook(rawWebhook);
           if (parsedEvent) {
-            console.log("Adding new event:", parsedEvent);
+            console.log("🎯 Adding new event:", parsedEvent);
             setEvents((prev) => [parsedEvent, ...prev.slice(0, 499)]);
           }
+        } else if (message.type === "pong") {
+          console.log("🏓 Pong received from server");
         }
       } catch (error) {
-        console.error("Error parsing WebSocket message:", error);
+        console.error("❌ Error parsing WebSocket message:", error);
       }
     };
 
     websocket.onclose = (event) => {
       clearTimeout(connectionTimeout);
-      console.log("WebSocket disconnected:", event.code, event.reason);
-      setConnectionStatus("disconnected");
+      console.log(
+        `🔌 WebSocket disconnected: Code ${event.code} - ${event.reason}`
+      );
 
-      // Don't attempt to reconnect if the close was clean (user initiated)
-      if (event.code !== 1000 && event.code !== 1001) {
-        setConnectionAttempts((prev) => prev + 1);
+      // Only set to disconnected if this wasn't a manual close
+      if (!isManuallyClosingRef.current) {
+        setConnectionStatus("disconnected");
+
+        // Only attempt to reconnect if it wasn't a clean close and we haven't exceeded max attempts
+        if (
+          event.code !== 1000 &&
+          event.code !== 1001 &&
+          connectionAttempts < 5
+        ) {
+          console.log(
+            `🔄 Will attempt reconnection (attempt ${connectionAttempts + 1}/5)`
+          );
+          setConnectionAttempts((prev) => prev + 1);
+        } else if (connectionAttempts >= 5) {
+          console.log("❌ Max reconnection attempts reached");
+          setConnectionStatus("failed");
+        }
+      }
+
+      // Clear the ref if this is our current websocket
+      if (websocketRef.current === websocket) {
+        websocketRef.current = null;
       }
     };
 
     websocket.onerror = (error) => {
       clearTimeout(connectionTimeout);
-      console.error("WebSocket error:", error);
-      setConnectionStatus("error");
-      setConnectionAttempts((prev) => prev + 1);
-    };
+      console.error("❌ WebSocket error:", error);
 
-    return websocket;
-  }, []);
-
-  // WebSocket connection management with automatic retry
-  useEffect(() => {
-    let websocket = null;
-    let reconnectTimeout = null;
-
-    const connect = () => {
-      websocket = connectWebSocket();
-    };
-
-    // Initial connection
-    connect();
-
-    // Auto-reconnect logic
-    const scheduleReconnect = () => {
-      if (connectionAttempts < 10) {
-        // Limit reconnection attempts
-        const delay = Math.min(1000 * Math.pow(2, connectionAttempts), 30000); // Exponential backoff, max 30s
-        console.log(
-          `Scheduling reconnection in ${delay}ms (attempt ${
-            connectionAttempts + 1
-          })`
-        );
-
-        reconnectTimeout = setTimeout(() => {
-          if (
-            connectionStatus === "disconnected" ||
-            connectionStatus === "error"
-          ) {
-            connect();
-          }
-        }, delay);
-      } else {
-        console.log("Max reconnection attempts reached");
-        setConnectionStatus("failed");
+      if (!isManuallyClosingRef.current) {
+        setConnectionStatus("error");
+        setConnectionAttempts((prev) => prev + 1);
       }
     };
+  }, [connectionAttempts]); // Only depend on connectionAttempts
 
-    // Monitor connection status for auto-reconnect
-    if (connectionStatus === "disconnected" || connectionStatus === "error") {
-      scheduleReconnect();
+  // FIXED: WebSocket connection management
+  useEffect(() => {
+    // Clear any existing reconnect timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Connect immediately if disconnected or failed
+    if (connectionStatus === "disconnected" && connectionAttempts === 0) {
+      connectWebSocket();
+    }
+    // Schedule reconnection for error states
+    else if (
+      (connectionStatus === "error" || connectionStatus === "disconnected") &&
+      connectionAttempts > 0 &&
+      connectionAttempts < 5
+    ) {
+      const delay = Math.min(1000 * Math.pow(2, connectionAttempts - 1), 30000); // Exponential backoff
+      console.log(
+        `⏱️ Scheduling reconnection in ${delay}ms (attempt ${
+          connectionAttempts + 1
+        })`
+      );
+
+      reconnectTimeoutRef.current = setTimeout(() => {
+        connectWebSocket();
+      }, delay);
     }
 
     // Cleanup function
     return () => {
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-      }
-      if (websocket && websocket.readyState === WebSocket.OPEN) {
-        websocket.close(1000, "Component unmounting");
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
     };
-  }, [connectWebSocket, connectionStatus, connectionAttempts]);
+  }, [connectionStatus, connectionAttempts, connectWebSocket]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (websocketRef.current) {
+        isManuallyClosingRef.current = true;
+        websocketRef.current.close(1000, "Component unmounting");
+      }
+    };
+  }, []);
 
   // Manual reconnect function
   const handleReconnect = () => {
+    console.log("🔄 Manual reconnection triggered");
     setConnectionAttempts(0);
     setConnectionStatus("disconnected");
   };
@@ -408,27 +463,38 @@ function App() {
           </div>
         </div>
 
-        {/* Connection Debug Info */}
-        {process.env.NODE_ENV === "development" && (
-          <div
-            style={{
-              background: "rgba(255,255,255,0.1)",
-              padding: "10px",
-              borderRadius: "6px",
-              fontSize: "12px",
-              marginBottom: "1rem",
-            }}
-          >
-            <div>WebSocket URL: {WEBSOCKET_URL}</div>
-            <div>Connection Attempts: {connectionAttempts}</div>
-            {lastConnectionAttempt && (
-              <div>
-                Last Attempt:{" "}
-                {new Date(lastConnectionAttempt).toLocaleTimeString()}
-              </div>
-            )}
+        {/* Connection Debug Info - Enhanced for troubleshooting */}
+        <div
+          style={{
+            background: "rgba(255,255,255,0.1)",
+            padding: "10px",
+            borderRadius: "6px",
+            fontSize: "12px",
+            marginBottom: "1rem",
+          }}
+        >
+          <div>
+            <strong>WebSocket URL:</strong> {WEBSOCKET_URL}
           </div>
-        )}
+          <div>
+            <strong>Status:</strong> {connectionStatus}
+          </div>
+          <div>
+            <strong>Connection Attempts:</strong> {connectionAttempts}/5
+          </div>
+          {lastConnectionAttempt && (
+            <div>
+              <strong>Last Attempt:</strong>{" "}
+              {new Date(lastConnectionAttempt).toLocaleTimeString()}
+            </div>
+          )}
+          <div>
+            <strong>Environment:</strong> {process.env.NODE_ENV}
+          </div>
+          <div>
+            <strong>Build Time:</strong> {new Date().toISOString()}
+          </div>
+        </div>
 
         {/* Statistics Cards */}
         <div className="stats-grid">
@@ -517,8 +583,8 @@ function App() {
             </p>
             {WEBSOCKET_URL.includes("your-websocket-id") && (
               <div className="setup-warning">
-                <strong>Setup Required:</strong> Set REACT_APP_WEBSOCKET_URL
-                environment variable
+                <strong>Setup Required:</strong> WebSocket URL not configured
+                properly. Current: {WEBSOCKET_URL}
               </div>
             )}
             {connectionStatus === "error" || connectionStatus === "failed" ? (
