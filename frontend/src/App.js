@@ -37,7 +37,8 @@ const runConnectionDiagnostics = async (url) => {
   // Test 2: Try HTTPS version of the endpoint first
   try {
     const httpsUrl = url.replace("wss://", "https://").replace("/dev", "");
-    const response = await fetch(httpsUrl, {
+    // Remove the unused 'response' variable that was causing the ESLint error
+    await fetch(httpsUrl, {
       method: "GET",
       mode: "no-cors",
     });
@@ -228,9 +229,6 @@ function App() {
   const [filteredEvents, setFilteredEvents] = useState([]);
   const [connectionStatus, setConnectionStatus] = useState("disconnected");
   const [connectionAttempts, setConnectionAttempts] = useState(0);
-  const [lastMessage, setLastMessage] = useState(null);
-  const [diagnostics, setDiagnostics] = useState(null);
-  const [connectionErrors, setConnectionErrors] = useState([]);
   const [filters, setFilters] = useState({
     type: "all",
     status: "all",
@@ -260,25 +258,12 @@ function App() {
       diagnosticsRunRef.current = true;
       runConnectionDiagnostics(WEBSOCKET_URL)
         .then((results) => {
-          setDiagnostics(results);
           log("Connection diagnostics completed", results);
         })
         .catch((err) => {
           log("Diagnostics failed", err);
-          setDiagnostics({ error: err.message });
         });
     }
-  }, []);
-
-  // Add connection error tracking
-  const addConnectionError = useCallback((error) => {
-    const errorEntry = {
-      timestamp: new Date().toISOString(),
-      error: error,
-      userAgent: navigator.userAgent,
-      url: WEBSOCKET_URL,
-    };
-    setConnectionErrors((prev) => [errorEntry, ...prev.slice(0, 4)]);
   }, []);
 
   // Load historical data on component mount
@@ -351,7 +336,8 @@ function App() {
     if (mountedRef.current) {
       loadHistoricalData();
     }
-  }, []);
+    // Fixed: Added connectionStatus to dependency array
+  }, [connectionStatus]);
 
   // Calculate statistics
   useEffect(() => {
@@ -433,7 +419,6 @@ function App() {
     if (!WEBSOCKET_URL || WEBSOCKET_URL.includes("your-websocket-id")) {
       const error = `WebSocket URL not configured properly: ${WEBSOCKET_URL}`;
       log(error);
-      addConnectionError(error);
       setConnectionStatus("error");
       return;
     }
@@ -463,7 +448,6 @@ function App() {
         if (websocket.readyState === WebSocket.CONNECTING) {
           const timeoutError = `WebSocket connection timeout after 30 seconds`;
           log(`❌ ${timeoutError}`);
-          addConnectionError(timeoutError);
           websocket.close();
           if (mountedRef.current) {
             setConnectionStatus("error");
@@ -478,7 +462,6 @@ function App() {
         if (mountedRef.current) {
           setConnectionStatus("connected");
           setConnectionAttempts(0);
-          setConnectionErrors([]);
         }
 
         try {
@@ -498,10 +481,6 @@ function App() {
         try {
           const message = JSON.parse(event.data);
           log(`📨 Message received: ${message.type}`);
-
-          if (mountedRef.current) {
-            setLastMessage(new Date().toISOString());
-          }
 
           if (message.type === "webhook_data" && message.event === "insert") {
             const rawWebhook = {
@@ -581,7 +560,7 @@ function App() {
         setConnectionAttempts((prev) => prev + 1);
       }
     }
-  }, [connectionAttempts, addConnectionError]);
+  }, [connectionAttempts]);
 
   // Connection management with proper cleanup
   useEffect(() => {
@@ -865,17 +844,6 @@ function App() {
 
 // Enhanced Repair Order Card Component with null safety
 function RepairOrderCard({ event, formatCurrency, formatTime, formatHours }) {
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case "high":
-        return "#dc3545";
-      case "medium":
-        return "#fd7e14";
-      default:
-        return "#6c757d";
-    }
-  };
-
   const getAuthorizationBadge = (authorized) => {
     if (authorized === true) return { text: "Authorized", class: "authorized" };
     if (authorized === false) return { text: "Declined", class: "declined" };
