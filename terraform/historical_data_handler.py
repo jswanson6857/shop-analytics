@@ -1,4 +1,4 @@
-# terraform/historical_data_handler.py
+# terraform/historical_data_handler.py - FIXED WITH PROPER CORS
 import json
 import logging
 import os
@@ -20,12 +20,35 @@ class DecimalEncoder(json.JSONEncoder):
             return float(obj)
         return super(DecimalEncoder, self).default(obj)
 
+def get_cors_headers():
+    """Return consistent CORS headers for all responses"""
+    return {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY'
+    }
+
 def lambda_handler(event, context):
     """
     AWS Lambda function to serve historical webhook data for initial page load
     """
     
     try:
+        logger.info(f"Historical data request: {json.dumps(event, default=str)}")
+        
+        # Handle preflight OPTIONS requests
+        if event.get('httpMethod') == 'OPTIONS':
+            logger.info("Handling CORS preflight request")
+            return {
+                'statusCode': 200,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'message': 'CORS preflight response'})
+            }
+        
         # Environment variables
         table_name = os.environ.get('DYNAMODB_TABLE_NAME', 'webhook-ingestion-webhook-data')
         
@@ -47,13 +70,18 @@ def lambda_handler(event, context):
         
         # Query DynamoDB for recent data
         try:
-            # Scan with filter for recent data (you might want to use GSI for better performance)
+            # Use a more efficient query approach - scan with filter for recent data
             response = table.scan(
-                FilterExpression='created_at >= :start_time',
+                FilterExpression='#ts >= :start_time',
+                ExpressionAttributeNames={
+                    '#ts': 'timestamp'
+                },
                 ExpressionAttributeValues={
                     ':start_time': start_time.isoformat()
                 },
-                Limit=limit
+                Limit=limit,
+                # Ensure we get the most recent items first
+                ScanIndexForward=False
             )
             
             items = response.get('Items', [])
@@ -87,16 +115,10 @@ def lambda_handler(event, context):
             
             logger.info(f"Successfully transformed {len(historical_events)} events")
             
-            # Return response
+            # Return successful response with CORS headers
             return {
                 'statusCode': 200,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-                    'Access-Control-Allow-Methods': 'GET,OPTIONS',
-                    'Cache-Control': 'no-cache, no-store, must-revalidate'
-                },
+                'headers': get_cors_headers(),
                 'body': json.dumps(historical_events, cls=DecimalEncoder)
             }
             
@@ -104,13 +126,12 @@ def lambda_handler(event, context):
             logger.error(f"Database query failed: {str(e)}", exc_info=True)
             return {
                 'statusCode': 500,
-                'headers': {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                },
+                'headers': get_cors_headers(),
                 'body': json.dumps({
                     'error': 'Database query failed',
-                    'message': str(e)
+                    'message': str(e),
+                    'requestId': context.aws_request_id,
+                    'timestamp': datetime.utcnow().isoformat()
                 })
             }
         
@@ -118,13 +139,11 @@ def lambda_handler(event, context):
         logger.error(f"Unexpected error: {str(e)}", exc_info=True)
         return {
             'statusCode': 500,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
+            'headers': get_cors_headers(),
             'body': json.dumps({
                 'error': 'Internal server error',
                 'message': str(e),
-                'requestId': context.aws_request_id
+                'requestId': context.aws_request_id,
+                'timestamp': datetime.utcnow().isoformat()
             })
         }

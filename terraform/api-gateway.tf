@@ -87,21 +87,38 @@ resource "aws_api_gateway_integration_response" "webhook_options_integration_res
   }
 }
 
+# FIXED: Updated deployment to include all resources
 resource "aws_api_gateway_deployment" "webhook_api_deployment" {
   depends_on = [
+    # Webhook endpoints
     aws_api_gateway_method.webhook_method,
     aws_api_gateway_integration.webhook_integration,
     aws_api_gateway_method.webhook_options,
     aws_api_gateway_integration.webhook_options_integration,
+    
+    # Data endpoints (from websocket.tf)
+    aws_api_gateway_method.data_method,
+    aws_api_gateway_integration.data_integration,
+    aws_api_gateway_method.data_options,
+    aws_api_gateway_integration.data_options_integration,
+    aws_api_gateway_integration_response.data_integration_response_200,
+    aws_api_gateway_integration_response.data_integration_response_500,
+    aws_api_gateway_integration_response.data_options_integration_response,
   ]
 
   rest_api_id = aws_api_gateway_rest_api.webhook_api.id
 
   triggers = {
+    # Updated to include data endpoint changes
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.webhook_resource.id,
       aws_api_gateway_method.webhook_method.id,
       aws_api_gateway_integration.webhook_integration.id,
+      aws_api_gateway_resource.data_resource.id,
+      aws_api_gateway_method.data_method.id,
+      aws_api_gateway_integration.data_integration.id,
+      aws_api_gateway_method.data_options.id,
+      aws_api_gateway_integration.data_options_integration.id,
     ]))
   }
 
