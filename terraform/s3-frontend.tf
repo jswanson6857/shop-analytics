@@ -1,5 +1,5 @@
 # terraform/s3-frontend.tf
-# Fixed S3 + CloudFront configuration for public access
+# Simple S3 + CloudFront configuration that works
 
 # Random suffix for unique bucket name
 resource "random_id" "bucket_suffix" {
@@ -19,19 +19,6 @@ resource "aws_s3_bucket_public_access_block" "frontend" {
   block_public_policy     = false
   ignore_public_acls      = false
   restrict_public_buckets = false
-}
-
-# S3 bucket website configuration
-resource "aws_s3_bucket_website_configuration" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
-
-  index_document {
-    suffix = "index.html"
-  }
-
-  error_document {
-    key = "index.html"
-  }
 }
 
 # S3 bucket policy for public website access
@@ -54,21 +41,15 @@ resource "aws_s3_bucket_policy" "frontend" {
   depends_on = [aws_s3_bucket_public_access_block.frontend]
 }
 
-# CloudFront Origin Access Control (newer approach)
-resource "aws_cloudfront_origin_access_control" "frontend" {
-  name                              = "${var.project_name}-oac"
-  description                       = "OAC for ${var.project_name} frontend"
-  origin_access_control_origin_type = "s3"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
-}
-
 # CloudFront distribution for HTTPS access
 resource "aws_cloudfront_distribution" "frontend" {
   origin {
-    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_id                = "S3-${aws_s3_bucket.frontend.bucket}"
-    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
+    domain_name = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_id   = "S3-${aws_s3_bucket.frontend.bucket}"
+    
+    s3_origin_config {
+      origin_access_identity = ""
+    }
   }
 
   enabled             = true
@@ -122,43 +103,6 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 }
 
-# Updated S3 bucket policy to allow CloudFront OAC
-resource "aws_s3_bucket_policy" "frontend_cloudfront" {
-  bucket = aws_s3_bucket.frontend.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid       = "AllowCloudFrontServicePrincipal"
-        Effect    = "Allow"
-        Principal = {
-          Service = "cloudfront.amazonaws.com"
-        }
-        Action   = "s3:GetObject"
-        Resource = "${aws_s3_bucket.frontend.arn}/*"
-        Condition = {
-          StringEquals = {
-            "AWS:SourceArn" = aws_cloudfront_distribution.frontend.arn
-          }
-        }
-      },
-      {
-        Sid       = "PublicReadGetObject"
-        Effect    = "Allow"
-        Principal = "*"
-        Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.frontend.arn}/*"
-      }
-    ]
-  })
-
-  depends_on = [
-    aws_s3_bucket_public_access_block.frontend,
-    aws_cloudfront_distribution.frontend
-  ]
-}
-
 # Outputs
 output "s3_bucket_name" {
   description = "Name of the S3 bucket"
@@ -173,9 +117,4 @@ output "cloudfront_url" {
 output "cloudfront_distribution_id" {
   description = "CloudFront distribution ID"
   value       = aws_cloudfront_distribution.frontend.id
-}
-
-output "s3_website_url" {
-  description = "S3 website URL (for debugging)"
-  value       = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
 }
