@@ -20,35 +20,10 @@ resource "aws_apigatewayv2_stage" "websocket_stage" {
     throttling_burst_limit   = 5000
     throttling_rate_limit    = 2000
     detailed_metrics_enabled = true
-    logging_level           = "ERROR"
   }
-
-  # Access logging configuration
-  access_log_settings {
-    destination_arn = aws_cloudwatch_log_group.websocket_access_logs.arn
-    format = jsonencode({
-      requestId      = "$context.requestId"
-      requestTime    = "$context.requestTime"
-      connectionId   = "$context.connectionId"
-      routeKey      = "$context.routeKey"
-      status        = "$context.status"
-      error         = "$context.error.message"
-      integration   = "$context.integrationErrorMessage"
-      responseLength = "$context.responseLength"
-      userAgent     = "$context.identity.userAgent"
-      sourceIp      = "$context.identity.sourceIp"
-    })
-  }
-
-  depends_on = [aws_cloudwatch_log_group.websocket_access_logs]
 }
 
 # CloudWatch log groups for debugging
-resource "aws_cloudwatch_log_group" "websocket_access_logs" {
-  name              = "/aws/apigateway/websocket/${var.project_name}-access-logs"
-  retention_in_days = 7
-}
-
 resource "aws_cloudwatch_log_group" "websocket_handler_logs" {
   name              = "/aws/lambda/${var.project_name}-websocket-handler"
   retention_in_days = 7
@@ -139,8 +114,8 @@ resource "aws_lambda_function" "broadcast_handler" {
   handler         = "broadcast_handler.lambda_handler"
   source_code_hash = data.archive_file.broadcast_lambda_zip.output_base64sha256
   runtime         = "python3.11"
-  timeout         = 60  # Increased timeout for broadcasting to many connections
-  memory_size     = 512  # Increased memory for handling multiple connections
+  timeout         = 60
+  memory_size     = 512
 
   environment {
     variables = {
@@ -161,9 +136,6 @@ resource "aws_apigatewayv2_route" "connect_route" {
   api_id    = aws_apigatewayv2_api.websocket_api.id
   route_key = "$connect"
   target    = "integrations/${aws_apigatewayv2_integration.connect_integration.id}"
-  
-  # Optional: Add authorization
-  # authorization_type = "AWS_IAM"
 }
 
 resource "aws_apigatewayv2_route" "disconnect_route" {
@@ -185,7 +157,7 @@ resource "aws_apigatewayv2_integration" "connect_integration" {
   integration_uri           = aws_lambda_function.websocket_handler.invoke_arn
   integration_method        = "POST"
   content_handling_strategy = "CONVERT_TO_TEXT"
-  timeout_milliseconds      = 29000  # Just under the 30-second Lambda timeout
+  timeout_milliseconds      = 29000
 }
 
 resource "aws_apigatewayv2_integration" "disconnect_integration" {
@@ -222,11 +194,9 @@ resource "aws_lambda_event_source_mapping" "dynamodb_stream" {
   starting_position = "LATEST"
   batch_size        = 10
   
-  # Enhanced error handling
   maximum_batching_window_in_seconds = 5
   parallelization_factor            = 2
   
-  # Dead letter queue for failed events
   function_response_types = ["ReportBatchItemFailures"]
 }
 
@@ -376,7 +346,6 @@ output "historical_data_endpoint" {
 output "websocket_logs" {
   description = "WebSocket CloudWatch log groups"
   value = {
-    access_logs     = aws_cloudwatch_log_group.websocket_access_logs.name
     handler_logs    = aws_cloudwatch_log_group.websocket_handler_logs.name
     broadcast_logs  = aws_cloudwatch_log_group.broadcast_handler_logs.name
     historical_logs = aws_cloudwatch_log_group.historical_data_logs.name
