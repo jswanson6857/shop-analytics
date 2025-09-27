@@ -11,6 +11,112 @@ const log = (message, data = null) => {
   console.log(`[${timestamp}] ${message}`, data || "");
 };
 
+const getRestApiEndpoint = (websocketUrl) => {
+  if (!websocketUrl) return null;
+
+  try {
+    // WebSocket URL format: wss://WEBSOCKET_API_ID.execute-api.region.amazonaws.com/stage
+    // REST API URL format: https://REST_API_ID.execute-api.region.amazonaws.com/stage
+
+    // For now, we need to determine the REST API ID
+    // This is a temporary solution - ideally this should come from environment variables
+
+    const wsUrlParts = websocketUrl.replace("wss://", "").split("/");
+    const wsApiGatewayBase = wsUrlParts[0]; // WEBSOCKET_API_ID.execute-api.region.amazonaws.com
+    const stage = wsUrlParts[1] || "dev";
+
+    // Extract region from WebSocket URL
+    const urlParts = wsApiGatewayBase.split(".");
+    const region = urlParts[2]; // Should be the region
+
+    // IMPORTANT: You need to get your REST API ID from terraform output
+    // Run: cd terraform && terraform output rest_api_id
+    // For now, this is a placeholder - replace with your actual REST API ID
+    const REST_API_ID = "YOUR_REST_API_ID_HERE"; // GET THIS FROM: terraform output rest_api_id
+
+    const restApiEndpoint = `https://${REST_API_ID}.execute-api.${region}.amazonaws.com/${stage}/data`;
+
+    console.log(`🔄 WebSocket URL: ${websocketUrl}`);
+    console.log(`🔄 Derived REST API endpoint: ${restApiEndpoint}`);
+
+    return restApiEndpoint;
+  } catch (error) {
+    console.error(`❌ Error deriving REST API endpoint: ${error.message}`);
+    return null;
+  }
+};
+
+// Update your loadHistoricalData function in App.js:
+const loadHistoricalData = async () => {
+  if (!WEBSOCKET_URL) return;
+
+  try {
+    // Use the helper function to get the correct REST API endpoint
+    const dataEndpoint = getRestApiEndpoint(WEBSOCKET_URL);
+
+    if (!dataEndpoint || dataEndpoint.includes("YOUR_REST_API_ID_HERE")) {
+      console.error("❌ REST API ID not configured. Please:");
+      console.error("1. Run: cd terraform && terraform output rest_api_id");
+      console.error("2. Update the REST_API_ID in getRestApiEndpoint function");
+      console.error("3. Rebuild and deploy your React app");
+      return;
+    }
+
+    log(`🔄 Loading historical data from: ${dataEndpoint}`);
+    setConnectionStatus("loading-history");
+
+    const response = await fetch(dataEndpoint, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (response.ok) {
+      const historicalData = await response.json();
+      log(`📚 Received ${historicalData.length} historical events`);
+
+      if (
+        historicalData &&
+        Array.isArray(historicalData) &&
+        historicalData.length > 0
+      ) {
+        // Parse historical data using the same parser
+        const parsedEvents = historicalData
+          .map((rawEvent) => {
+            try {
+              return AutoShopParser.parseWebhook(rawEvent);
+            } catch (error) {
+              log(`Error parsing historical event: ${error.message}`);
+              return null;
+            }
+          })
+          .filter(Boolean)
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        if (parsedEvents.length > 0 && mountedRef.current) {
+          setEvents(parsedEvents);
+          log(
+            `✅ Loaded ${parsedEvents.length} historical events on initial load`
+          );
+        }
+      } else {
+        log(`📭 No historical data available`);
+      }
+    } else {
+      log(
+        `⚠️ Historical data endpoint returned ${response.status}: ${response.statusText}`
+      );
+    }
+  } catch (error) {
+    log(`❌ Failed to load historical data: ${error.message}`);
+  } finally {
+    if (mountedRef.current && connectionStatus === "loading-history") {
+      setConnectionStatus("disconnected");
+    }
+  }
+};
+
 // Connection diagnostics
 const runConnectionDiagnostics = async (url) => {
   const results = {
