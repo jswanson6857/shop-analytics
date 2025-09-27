@@ -1,105 +1,187 @@
-// src/App.js - Auto Shop Management Dashboard with FIXED WebSocket Connection
+// src/App.js - Auto Shop Management Dashboard - ROBUST Multi-Device Version
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
-// Get WebSocket URL from environment or use placeholder
-const WEBSOCKET_URL =
-  process.env.REACT_APP_WEBSOCKET_URL ||
-  "wss://your-websocket-id.execute-api.us-east-1.amazonaws.com/dev";
+// Get WebSocket URL from environment - this MUST be embedded in build
+const WEBSOCKET_URL = process.env.REACT_APP_WEBSOCKET_URL;
 
-// Auto Shop Data Parser
+// Debug logging for connection issues
+const log = (message, data = null) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${message}`, data || "");
+};
+
+// Auto Shop Data Parser - Enhanced to handle full data structure
 class AutoShopParser {
   static parseWebhook(webhook) {
-    const body = webhook.body;
-    if (!body || !body.data) return null;
+    try {
+      const body = webhook.body;
+      if (!body || !body.data) {
+        log("Invalid webhook body", webhook);
+        return null;
+      }
 
-    const data = body.data;
-    const event = body.event || "";
+      const data = body.data;
+      const event = body.event || "";
 
-    if (data.repairOrderNumber) {
-      return this.parseRepairOrder(data, event, webhook);
-    } else if (data.appointmentStatus) {
-      return this.parseAppointment(data, event, webhook);
+      if (data.repairOrderNumber) {
+        return this.parseRepairOrder(data, event, webhook);
+      } else if (data.appointmentStatus) {
+        return this.parseAppointment(data, event, webhook);
+      }
+
+      log("Unknown webhook type", data);
+      return null;
+    } catch (error) {
+      log("Error parsing webhook", error);
+      return null;
     }
-    return null;
   }
 
   static parseRepairOrder(data, event, webhook) {
-    const orderNumber = data.repairOrderNumber;
-    const status = data.repairOrderStatus?.name || "Unknown";
-    const customLabel =
-      data.repairOrderCustomLabel?.name || data.repairOrderLabel?.name;
-    const totalSales = data.totalSales || 0;
-    const amountPaid = data.amountPaid || 0;
-    const balanceDue = totalSales - amountPaid;
+    try {
+      const orderNumber = data.repairOrderNumber;
+      const status = data.repairOrderStatus?.name || "Unknown";
+      const statusCode = data.repairOrderStatus?.code;
+      const customLabel =
+        data.repairOrderCustomLabel?.name || data.repairOrderLabel?.name;
+      const color = data.color;
 
-    // Extract job information
-    const jobs = data.jobs || [];
-    const authorizedJobs = jobs.filter((job) => job.authorized);
-    const pendingJobs = jobs.filter((job) => !job.authorized);
+      // Financial data (all in cents, convert to dollars) - handle null values
+      const laborSales = data.laborSales ? data.laborSales / 100 : 0;
+      const partsSales = data.partsSales ? data.partsSales / 100 : 0;
+      const subletSales = data.subletSales ? data.subletSales / 100 : 0;
+      const discountTotal = data.discountTotal ? data.discountTotal / 100 : 0;
+      const feeTotal = data.feeTotal ? data.feeTotal / 100 : 0;
+      const taxes = data.taxes ? data.taxes / 100 : 0;
+      const totalSales = data.totalSales ? data.totalSales / 100 : 0;
+      const amountPaid = data.amountPaid ? data.amountPaid / 100 : 0;
+      const balanceDue = totalSales - amountPaid;
 
-    // Extract customer concerns
-    const concerns = data.customerConcerns?.map((c) => c.concern.trim()) || [];
+      // Extract job information with detailed breakdown
+      const jobs = data.jobs || [];
+      const authorizedJobs = jobs.filter((job) => job.authorized === true);
+      const pendingJobs = jobs.filter((job) => job.authorized === null);
+      const rejectedJobs = jobs.filter((job) => job.authorized === false);
 
-    // Determine priority
-    let priority = "normal";
-    if (status === "Complete" && balanceDue > 0) priority = "high";
-    else if (status === "Work-In-Progress") priority = "medium";
-    else if (totalSales > 50000) priority = "high"; // $500+ orders
+      // Calculate total labor hours
+      const totalLaborHours = jobs.reduce(
+        (sum, job) => sum + (job.laborHours || 0),
+        0
+      );
 
-    return {
-      id: webhook.id,
-      type: "repair-order",
-      timestamp: webhook.timestamp,
-      orderNumber: orderNumber,
-      status: status,
-      customLabel: customLabel,
-      totalSales: totalSales / 100, // Convert cents to dollars
-      amountPaid: amountPaid / 100,
-      balanceDue: balanceDue / 100,
-      customerId: data.customerId,
-      vehicleId: data.vehicleId,
-      technicianId: data.technicianId,
-      mileage: data.milesIn,
-      keyTag: data.keytag,
-      completedDate: data.completedDate,
-      authorizedJobs: authorizedJobs.length,
-      pendingJobs: pendingJobs.length,
-      jobNames: authorizedJobs.slice(0, 3).map((job) => job.name),
-      customerConcerns: concerns.slice(0, 2),
-      priority: priority,
-      event: event,
-      color: data.color,
-    };
+      // Extract customer concerns - handle both string and object formats
+      let concerns = [];
+      if (data.customerConcerns && Array.isArray(data.customerConcerns)) {
+        concerns = data.customerConcerns
+          .map((c) => (typeof c === "string" ? c : c.concern))
+          .filter(Boolean)
+          .map((c) => c.trim());
+      }
+
+      // Determine priority based on multiple factors
+      let priority = "normal";
+      if (balanceDue > 500) priority = "high";
+      else if (status === "Work-In-Progress" || statusCode === "WORKINPROGRESS")
+        priority = "medium";
+      else if (totalSales > 1000) priority = "medium";
+      else if (authorizedJobs.length > 3) priority = "medium";
+
+      // Job details for display - handle missing data gracefully
+      const jobDetails = jobs.map((job) => ({
+        id: job.id || Math.random(),
+        name: job.name || "Unnamed Job",
+        authorized: job.authorized,
+        laborTotal: job.laborTotal ? job.laborTotal / 100 : 0,
+        partsTotal: job.partsTotal ? job.partsTotal / 100 : 0,
+        subtotal: job.subtotal ? job.subtotal / 100 : 0,
+        laborHours: job.laborHours || 0,
+        complete: job.labor?.some((l) => l.complete) || false,
+      }));
+
+      return {
+        id: webhook.id || Math.random(),
+        type: "repair-order",
+        timestamp: webhook.timestamp || new Date().toISOString(),
+        orderNumber: orderNumber,
+        status: status,
+        statusCode: statusCode,
+        customLabel: customLabel,
+        color: color,
+
+        // Financial breakdown
+        laborSales: laborSales,
+        partsSales: partsSales,
+        subletSales: subletSales,
+        discountTotal: discountTotal,
+        feeTotal: feeTotal,
+        taxes: taxes,
+        totalSales: totalSales,
+        amountPaid: amountPaid,
+        balanceDue: balanceDue,
+
+        // Job details
+        totalJobs: jobs.length,
+        authorizedJobs: authorizedJobs.length,
+        pendingJobs: pendingJobs.length,
+        rejectedJobs: rejectedJobs.length,
+        totalLaborHours: totalLaborHours,
+        jobDetails: jobDetails,
+
+        // Metadata - handle null values
+        customerId: data.customerId || null,
+        vehicleId: data.vehicleId || null,
+        technicianId: data.technicianId || null,
+        serviceWriterId: data.serviceWriterId || null,
+        shopId: data.shopId || null,
+        mileage: data.milesIn || null,
+        milesOut: data.milesOut || null,
+        keyTag: data.keytag || null,
+        completedDate: data.completedDate || null,
+        createdDate: data.createdDate || null,
+        updatedDate: data.updatedDate || null,
+        customerConcerns: concerns,
+        priority: priority,
+        event: event,
+      };
+    } catch (error) {
+      log("Error parsing repair order", error);
+      return null;
+    }
   }
 
   static parseAppointment(data, event, webhook) {
-    const status = data.appointmentStatus;
-    const title = data.title || "Unknown Customer";
-    const startTime = data.startTime ? new Date(data.startTime) : null;
-    const endTime = data.endTime ? new Date(data.endTime) : null;
+    try {
+      const status = data.appointmentStatus;
+      const title = data.title || "Unknown Customer";
+      const startTime = data.startTime ? new Date(data.startTime) : null;
+      const endTime = data.endTime ? new Date(data.endTime) : null;
 
-    let priority = "normal";
-    if (status === "ARRIVED") priority = "high";
-    else if (status === "CONFIRMED") priority = "medium";
+      let priority = "normal";
+      if (status === "ARRIVED") priority = "high";
+      else if (status === "CONFIRMED") priority = "medium";
 
-    return {
-      id: webhook.id,
-      type: "appointment",
-      timestamp: webhook.timestamp,
-      status: status,
-      title: title,
-      startTime: startTime,
-      endTime: endTime,
-      description: data.description,
-      arrived: data.arrived,
-      customerId: data.customerId,
-      vehicleId: data.vehicleId,
-      appointmentOption: data.appointmentOption?.name,
-      priority: priority,
-      event: event,
-      color: data.color,
-    };
+      return {
+        id: webhook.id || Math.random(),
+        type: "appointment",
+        timestamp: webhook.timestamp || new Date().toISOString(),
+        status: status,
+        title: title,
+        startTime: startTime,
+        endTime: endTime,
+        description: data.description || null,
+        arrived: data.arrived || false,
+        customerId: data.customerId || null,
+        vehicleId: data.vehicleId || null,
+        appointmentOption: data.appointmentOption?.name || null,
+        priority: priority,
+        event: event,
+        color: data.color || null,
+      };
+    } catch (error) {
+      log("Error parsing appointment", error);
+      return null;
+    }
   }
 }
 
@@ -108,7 +190,7 @@ function App() {
   const [filteredEvents, setFilteredEvents] = useState([]);
   const [connectionStatus, setConnectionStatus] = useState("disconnected");
   const [connectionAttempts, setConnectionAttempts] = useState(0);
-  const [lastConnectionAttempt, setLastConnectionAttempt] = useState(null);
+  const [lastMessage, setLastMessage] = useState(null);
   const [filters, setFilters] = useState({
     type: "all",
     status: "all",
@@ -123,17 +205,20 @@ function App() {
     highPriority: 0,
     totalRevenue: 0,
     pendingBalance: 0,
+    totalLaborHours: 0,
   });
 
-  // Use refs to avoid infinite reconnection loops
+  // Use refs to prevent infinite loops and memory leaks
   const websocketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
-  const isManuallyClosingRef = useRef(false);
+  const mountedRef = useRef(true);
 
   // Calculate statistics
   useEffect(() => {
     const today = new Date().toISOString().split("T")[0];
-    const todayEvents = events.filter((e) => e.timestamp.startsWith(today));
+    const todayEvents = events.filter(
+      (e) => e.timestamp && e.timestamp.startsWith(today)
+    );
     const repairOrders = events.filter((e) => e.type === "repair-order");
     const appointments = events.filter((e) => e.type === "appointment");
     const highPriority = events.filter((e) => e.priority === "high");
@@ -146,6 +231,10 @@ function App() {
       (sum, ro) => sum + (ro.balanceDue || 0),
       0
     );
+    const totalLaborHours = repairOrders.reduce(
+      (sum, ro) => sum + (ro.totalLaborHours || 0),
+      0
+    );
 
     setStats({
       total: events.length,
@@ -155,12 +244,13 @@ function App() {
       highPriority: highPriority.length,
       totalRevenue: totalRevenue,
       pendingBalance: pendingBalance,
+      totalLaborHours: totalLaborHours,
     });
   }, [events]);
 
   // Apply filters
   useEffect(() => {
-    let filtered = events;
+    let filtered = [...events];
 
     if (filters.type !== "all") {
       filtered = filtered.filter((e) => e.type === filters.type);
@@ -176,8 +266,8 @@ function App() {
       filtered = filtered.filter((e) => e.priority === filters.priority);
     }
 
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
+    if (filters.search.trim()) {
+      const searchLower = filters.search.toLowerCase().trim();
       filtered = filtered.filter(
         (e) =>
           e.orderNumber?.toString().includes(searchLower) ||
@@ -186,6 +276,9 @@ function App() {
           e.customLabel?.toLowerCase().includes(searchLower) ||
           e.customerConcerns?.some((concern) =>
             concern.toLowerCase().includes(searchLower)
+          ) ||
+          e.jobDetails?.some((job) =>
+            job.name?.toLowerCase().includes(searchLower)
           )
       );
     }
@@ -193,170 +286,184 @@ function App() {
     setFilteredEvents(filtered);
   }, [events, filters]);
 
-  // FIXED: WebSocket connection function with proper cleanup
+  // ROBUST WebSocket connection function
   const connectWebSocket = useCallback(() => {
-    // Don't create new connection if one exists and is connecting/open
+    // Don't connect if component is unmounted
+    if (!mountedRef.current) return;
+
+    // Check if we have a valid URL
+    if (!WEBSOCKET_URL || WEBSOCKET_URL.includes("your-websocket-id")) {
+      log("WebSocket URL not configured", WEBSOCKET_URL);
+      setConnectionStatus("error");
+      return;
+    }
+
+    // Don't create new connection if one exists and is open/connecting
     if (
       websocketRef.current &&
       (websocketRef.current.readyState === WebSocket.CONNECTING ||
         websocketRef.current.readyState === WebSocket.OPEN)
     ) {
-      console.log(
-        "WebSocket already connecting/connected, skipping new connection"
-      );
-      return;
-    }
-
-    if (!WEBSOCKET_URL || WEBSOCKET_URL.includes("your-websocket-id")) {
-      console.warn(
-        "WebSocket URL not configured properly. Current URL:",
-        WEBSOCKET_URL
-      );
-      setConnectionStatus("error");
+      log("WebSocket already active, skipping");
       return;
     }
 
     // Clean up existing connection
     if (websocketRef.current) {
-      isManuallyClosingRef.current = true;
       websocketRef.current.close();
       websocketRef.current = null;
     }
 
-    console.log(`🔌 Attempting WebSocket connection to: ${WEBSOCKET_URL}`);
+    log("Connecting to WebSocket", WEBSOCKET_URL);
     setConnectionStatus("connecting");
-    setLastConnectionAttempt(new Date().toISOString());
 
-    const websocket = new WebSocket(WEBSOCKET_URL);
-    websocketRef.current = websocket;
+    try {
+      const websocket = new WebSocket(WEBSOCKET_URL);
+      websocketRef.current = websocket;
 
-    // Connection timeout
-    const connectionTimeout = setTimeout(() => {
-      if (websocket.readyState === WebSocket.CONNECTING) {
-        console.log("❌ WebSocket connection timeout");
-        isManuallyClosingRef.current = true;
-        websocket.close();
-        setConnectionStatus("error");
-      }
-    }, 15000); // 15 second timeout
-
-    websocket.onopen = () => {
-      clearTimeout(connectionTimeout);
-      console.log("✅ WebSocket connected successfully!");
-      setConnectionStatus("connected");
-      setConnectionAttempts(0);
-      isManuallyClosingRef.current = false;
-
-      // Send a ping to test the connection
-      try {
-        websocket.send(
-          JSON.stringify({ type: "ping", timestamp: new Date().toISOString() })
-        );
-        console.log("📡 Ping sent to server");
-      } catch (e) {
-        console.warn("⚠️ Could not send ping:", e);
-      }
-    };
-
-    websocket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        console.log("📨 WebSocket message received:", message);
-
-        if (message.type === "webhook_data" && message.event === "insert") {
-          const rawWebhook = {
-            id: message.data.id,
-            timestamp: message.data.timestamp,
-            body: message.data.parsed_body,
-          };
-
-          const parsedEvent = AutoShopParser.parseWebhook(rawWebhook);
-          if (parsedEvent) {
-            console.log("🎯 Adding new event:", parsedEvent);
-            setEvents((prev) => [parsedEvent, ...prev.slice(0, 499)]);
+      // Connection timeout - be generous for mobile networks
+      const connectionTimeout = setTimeout(() => {
+        if (websocket.readyState === WebSocket.CONNECTING) {
+          log("WebSocket connection timeout");
+          websocket.close();
+          if (mountedRef.current) {
+            setConnectionStatus("error");
           }
-        } else if (message.type === "pong") {
-          console.log("🏓 Pong received from server");
         }
-      } catch (error) {
-        console.error("❌ Error parsing WebSocket message:", error);
-      }
-    };
+      }, 20000); // 20 second timeout for mobile
 
-    websocket.onclose = (event) => {
-      clearTimeout(connectionTimeout);
-      console.log(
-        `🔌 WebSocket disconnected: Code ${event.code} - ${event.reason}`
-      );
+      websocket.onopen = () => {
+        clearTimeout(connectionTimeout);
+        log("✅ WebSocket connected successfully");
 
-      // Only set to disconnected if this wasn't a manual close
-      if (!isManuallyClosingRef.current) {
-        setConnectionStatus("disconnected");
+        if (mountedRef.current) {
+          setConnectionStatus("connected");
+          setConnectionAttempts(0);
+        }
 
-        // Only attempt to reconnect if it wasn't a clean close and we haven't exceeded max attempts
-        if (
-          event.code !== 1000 &&
-          event.code !== 1001 &&
-          connectionAttempts < 5
-        ) {
-          console.log(
-            `🔄 Will attempt reconnection (attempt ${connectionAttempts + 1}/5)`
+        // Send ping to test connection
+        try {
+          websocket.send(
+            JSON.stringify({
+              type: "ping",
+              timestamp: new Date().toISOString(),
+              userAgent: navigator.userAgent,
+            })
           );
-          setConnectionAttempts((prev) => prev + 1);
-        } else if (connectionAttempts >= 5) {
-          console.log("❌ Max reconnection attempts reached");
-          setConnectionStatus("failed");
+          log("📡 Ping sent");
+        } catch (e) {
+          log("⚠️ Could not send ping", e);
         }
-      }
+      };
 
-      // Clear the ref if this is our current websocket
-      if (websocketRef.current === websocket) {
-        websocketRef.current = null;
-      }
-    };
+      websocket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          log("📨 Message received", message.type);
 
-    websocket.onerror = (error) => {
-      clearTimeout(connectionTimeout);
-      console.error("❌ WebSocket error:", error);
+          if (mountedRef.current) {
+            setLastMessage(new Date().toISOString());
+          }
 
-      if (!isManuallyClosingRef.current) {
+          if (message.type === "webhook_data" && message.event === "insert") {
+            const rawWebhook = {
+              id: message.data.id,
+              timestamp: message.data.timestamp,
+              body: message.data.parsed_body,
+            };
+
+            const parsedEvent = AutoShopParser.parseWebhook(rawWebhook);
+            if (parsedEvent && mountedRef.current) {
+              log(
+                "🎯 Adding new event",
+                parsedEvent.orderNumber || parsedEvent.title
+              );
+              setEvents((prev) => [parsedEvent, ...prev.slice(0, 499)]);
+            }
+          } else if (message.type === "pong") {
+            log("🏓 Pong received");
+          }
+        } catch (error) {
+          log("❌ Error parsing message", error);
+        }
+      };
+
+      websocket.onclose = (event) => {
+        clearTimeout(connectionTimeout);
+        log(`🔌 WebSocket closed: ${event.code} - ${event.reason}`);
+
+        if (websocketRef.current === websocket) {
+          websocketRef.current = null;
+        }
+
+        if (mountedRef.current) {
+          // Only reconnect if it wasn't a clean close
+          if (
+            event.code !== 1000 &&
+            event.code !== 1001 &&
+            connectionAttempts < 3
+          ) {
+            setConnectionStatus("disconnected");
+            setConnectionAttempts((prev) => prev + 1);
+          } else if (connectionAttempts >= 3) {
+            setConnectionStatus("failed");
+          } else {
+            setConnectionStatus("disconnected");
+          }
+        }
+      };
+
+      websocket.onerror = (error) => {
+        clearTimeout(connectionTimeout);
+        log("❌ WebSocket error", error);
+
+        if (mountedRef.current) {
+          setConnectionStatus("error");
+          setConnectionAttempts((prev) => prev + 1);
+        }
+      };
+    } catch (error) {
+      log("❌ Failed to create WebSocket", error);
+      if (mountedRef.current) {
         setConnectionStatus("error");
         setConnectionAttempts((prev) => prev + 1);
       }
-    };
-  }, [connectionAttempts]); // Only depend on connectionAttempts
+    }
+  }, [connectionAttempts]);
 
-  // FIXED: WebSocket connection management
+  // Connection management with proper cleanup
   useEffect(() => {
-    // Clear any existing reconnect timeout
+    if (!mountedRef.current) return;
+
+    // Clear existing timeout
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
 
-    // Connect immediately if disconnected or failed
+    // Initial connection or reconnection logic
     if (connectionStatus === "disconnected" && connectionAttempts === 0) {
+      // Connect immediately
       connectWebSocket();
-    }
-    // Schedule reconnection for error states
-    else if (
+    } else if (
       (connectionStatus === "error" || connectionStatus === "disconnected") &&
       connectionAttempts > 0 &&
-      connectionAttempts < 5
+      connectionAttempts < 3
     ) {
-      const delay = Math.min(1000 * Math.pow(2, connectionAttempts - 1), 30000); // Exponential backoff
-      console.log(
-        `⏱️ Scheduling reconnection in ${delay}ms (attempt ${
-          connectionAttempts + 1
-        })`
+      // Exponential backoff with shorter delays for mobile
+      const delay = Math.min(
+        2000 * Math.pow(1.5, connectionAttempts - 1),
+        10000
       );
+      log(`⏱️ Reconnecting in ${delay}ms (attempt ${connectionAttempts + 1})`);
 
       reconnectTimeoutRef.current = setTimeout(() => {
-        connectWebSocket();
+        if (mountedRef.current) {
+          connectWebSocket();
+        }
       }, delay);
     }
 
-    // Cleanup function
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -368,24 +475,29 @@ function App() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
+
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
+
       if (websocketRef.current) {
-        isManuallyClosingRef.current = true;
         websocketRef.current.close(1000, "Component unmounting");
+        websocketRef.current = null;
       }
     };
   }, []);
 
   // Manual reconnect function
   const handleReconnect = () => {
-    console.log("🔄 Manual reconnection triggered");
+    log("🔄 Manual reconnection triggered");
     setConnectionAttempts(0);
     setConnectionStatus("disconnected");
   };
 
+  // Helper functions with null safety
   const formatCurrency = (amount) => {
+    if (amount === null || amount === undefined || isNaN(amount)) return "";
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
@@ -393,7 +505,17 @@ function App() {
   };
 
   const formatTime = (dateString) => {
-    return new Date(dateString).toLocaleString();
+    if (!dateString) return "";
+    try {
+      return new Date(dateString).toLocaleString();
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatHours = (hours) => {
+    if (hours === null || hours === undefined || isNaN(hours)) return "";
+    return `${hours.toFixed(1)} hrs`;
   };
 
   const getStatusColor = () => {
@@ -435,7 +557,6 @@ function App() {
       <header className="dashboard-header">
         <div className="header-content">
           <h1>Auto Shop Real-Time Dashboard</h1>
-
           <div className="connection-status">
             <div
               className="status-indicator"
@@ -444,55 +565,10 @@ function App() {
             <span>{getStatusText()}</span>
             {(connectionStatus === "error" ||
               connectionStatus === "failed") && (
-              <button
-                onClick={handleReconnect}
-                style={{
-                  marginLeft: "10px",
-                  padding: "4px 8px",
-                  fontSize: "12px",
-                  background: "rgba(255,255,255,0.2)",
-                  border: "1px solid rgba(255,255,255,0.3)",
-                  color: "white",
-                  borderRadius: "4px",
-                  cursor: "pointer",
-                }}
-              >
+              <button onClick={handleReconnect} className="retry-button">
                 Retry
               </button>
             )}
-          </div>
-        </div>
-
-        {/* Connection Debug Info - Enhanced for troubleshooting */}
-        <div
-          style={{
-            background: "rgba(255,255,255,0.1)",
-            padding: "10px",
-            borderRadius: "6px",
-            fontSize: "12px",
-            marginBottom: "1rem",
-          }}
-        >
-          <div>
-            <strong>WebSocket URL:</strong> {WEBSOCKET_URL}
-          </div>
-          <div>
-            <strong>Status:</strong> {connectionStatus}
-          </div>
-          <div>
-            <strong>Connection Attempts:</strong> {connectionAttempts}/5
-          </div>
-          {lastConnectionAttempt && (
-            <div>
-              <strong>Last Attempt:</strong>{" "}
-              {new Date(lastConnectionAttempt).toLocaleTimeString()}
-            </div>
-          )}
-          <div>
-            <strong>Environment:</strong> {process.env.NODE_ENV}
-          </div>
-          <div>
-            <strong>Build Time:</strong> {new Date().toISOString()}
           </div>
         </div>
 
@@ -530,6 +606,12 @@ function App() {
             </div>
             <div className="stat-label">Pending Balance</div>
           </div>
+          <div className="stat-card">
+            <div className="stat-value">
+              {formatHours(stats.totalLaborHours)}
+            </div>
+            <div className="stat-label">Labor Hours</div>
+          </div>
         </div>
 
         {/* Filters */}
@@ -559,7 +641,7 @@ function App() {
 
           <input
             type="text"
-            placeholder="Search orders, customers, status..."
+            placeholder="Search orders, customers, jobs..."
             value={filters.search}
             onChange={(e) =>
               setFilters((prev) => ({ ...prev, search: e.target.value }))
@@ -578,34 +660,52 @@ function App() {
           <div className="empty-state">
             <h2>Waiting for shop events...</h2>
             <p>
-              Connect your auto shop system webhook to see real-time updates
-              here.
+              Real-time data will appear here when your auto shop system sends
+              webhooks.
             </p>
-            {WEBSOCKET_URL.includes("your-websocket-id") && (
+
+            {!WEBSOCKET_URL || WEBSOCKET_URL.includes("your-websocket-id") ? (
               <div className="setup-warning">
-                <strong>Setup Required:</strong> WebSocket URL not configured
-                properly. Current: {WEBSOCKET_URL}
+                <strong>Setup Required:</strong> WebSocket URL not configured.
+                <br />
+                Current URL: {WEBSOCKET_URL || "Not set"}
+              </div>
+            ) : (
+              <div className="connection-info">
+                <strong>Connected to:</strong> {WEBSOCKET_URL}
+                {lastMessage && (
+                  <div>
+                    Last message: {new Date(lastMessage).toLocaleTimeString()}
+                  </div>
+                )}
               </div>
             )}
-            {connectionStatus === "error" || connectionStatus === "failed" ? (
+
+            {(connectionStatus === "error" ||
+              connectionStatus === "failed") && (
               <div className="setup-warning">
                 <strong>Connection Issue:</strong> Unable to connect to
-                WebSocket server. Check your network connection and try
-                refreshing the page.
+                WebSocket server.
+                <br />
+                Status: {connectionStatus}
+                <br />
+                Attempts: {connectionAttempts}/3
               </div>
-            ) : null}
+            )}
           </div>
         ) : (
           filteredEvents.map((event) => (
             <div
-              key={event.id}
+              key={`${event.type}-${event.id}-${event.timestamp}`}
               className={`event-card ${event.type} priority-${event.priority}`}
+              style={{ borderLeftColor: event.color || undefined }}
             >
               {event.type === "repair-order" ? (
                 <RepairOrderCard
                   event={event}
                   formatCurrency={formatCurrency}
                   formatTime={formatTime}
+                  formatHours={formatHours}
                 />
               ) : (
                 <AppointmentCard event={event} formatTime={formatTime} />
@@ -618,8 +718,8 @@ function App() {
   );
 }
 
-// Repair Order Card Component
-function RepairOrderCard({ event, formatCurrency, formatTime }) {
+// Enhanced Repair Order Card Component with null safety
+function RepairOrderCard({ event, formatCurrency, formatTime, formatHours }) {
   const getPriorityColor = (priority) => {
     switch (priority) {
       case "high":
@@ -631,18 +731,26 @@ function RepairOrderCard({ event, formatCurrency, formatTime }) {
     }
   };
 
+  const getAuthorizationBadge = (authorized) => {
+    if (authorized === true) return { text: "Authorized", class: "authorized" };
+    if (authorized === false) return { text: "Declined", class: "declined" };
+    return { text: "Pending", class: "pending" };
+  };
+
   return (
     <>
       <div className="event-header">
         <div className="event-title">
           <h3>Repair Order #{event.orderNumber}</h3>
-          <span
-            className={`status-badge ${event.status
-              ?.toLowerCase()
-              .replace(/\s+/g, "-")}`}
-          >
-            {event.status}
-          </span>
+          {event.status && (
+            <span
+              className={`status-badge ${event.status
+                .toLowerCase()
+                .replace(/\s+/g, "-")}`}
+            >
+              {event.status}
+            </span>
+          )}
           {event.customLabel && event.customLabel !== event.status && (
             <span className="custom-label">{event.customLabel}</span>
           )}
@@ -659,57 +767,161 @@ function RepairOrderCard({ event, formatCurrency, formatTime }) {
       </div>
 
       <div className="event-details">
-        <div className="detail-grid">
-          {event.totalSales > 0 && (
-            <div className="detail-item">
-              <strong>Total:</strong>
-              <span>{formatCurrency(event.totalSales)}</span>
+        {/* Financial Summary */}
+        {(event.laborSales > 0 ||
+          event.partsSales > 0 ||
+          event.totalSales > 0) && (
+          <div className="financial-summary">
+            <div className="financial-grid">
+              {event.laborSales > 0 && (
+                <div className="financial-item">
+                  <strong>Labor:</strong>
+                  <span>{formatCurrency(event.laborSales)}</span>
+                </div>
+              )}
+              {event.partsSales > 0 && (
+                <div className="financial-item">
+                  <strong>Parts:</strong>
+                  <span>{formatCurrency(event.partsSales)}</span>
+                </div>
+              )}
+              {event.subletSales > 0 && (
+                <div className="financial-item">
+                  <strong>Sublet:</strong>
+                  <span>{formatCurrency(event.subletSales)}</span>
+                </div>
+              )}
+              {event.feeTotal > 0 && (
+                <div className="financial-item">
+                  <strong>Fees:</strong>
+                  <span>{formatCurrency(event.feeTotal)}</span>
+                </div>
+              )}
+              {event.taxes > 0 && (
+                <div className="financial-item">
+                  <strong>Tax:</strong>
+                  <span>{formatCurrency(event.taxes)}</span>
+                </div>
+              )}
+              {event.discountTotal > 0 && (
+                <div className="financial-item discount">
+                  <strong>Discount:</strong>
+                  <span>-{formatCurrency(event.discountTotal)}</span>
+                </div>
+              )}
             </div>
-          )}
-          {event.balanceDue > 0 && (
-            <div className="detail-item">
-              <strong>Balance Due:</strong>
-              <span className="balance-due">
-                {formatCurrency(event.balanceDue)}
-              </span>
-            </div>
-          )}
-          {event.mileage && (
-            <div className="detail-item">
-              <strong>Mileage:</strong>
-              <span>{event.mileage.toLocaleString()} mi</span>
-            </div>
-          )}
-          {event.keyTag && (
-            <div className="detail-item">
-              <strong>Key Tag:</strong>
-              <span>{event.keyTag}</span>
-            </div>
-          )}
-          {event.authorizedJobs > 0 && (
-            <div className="detail-item">
-              <strong>Authorized Jobs:</strong>
-              <span>{event.authorizedJobs}</span>
-            </div>
-          )}
-          {event.pendingJobs > 0 && (
-            <div className="detail-item">
-              <strong>Pending Jobs:</strong>
-              <span>{event.pendingJobs}</span>
-            </div>
-          )}
-        </div>
 
-        {event.jobNames.length > 0 && (
-          <div className="job-names">
-            <strong>Jobs:</strong> {event.jobNames.join(", ")}
-            {event.authorizedJobs > 3 && (
-              <span> + {event.authorizedJobs - 3} more</span>
-            )}
+            <div className="total-section">
+              {event.totalSales > 0 && (
+                <div className="total-item">
+                  <strong>Total:</strong>
+                  <span className="total-amount">
+                    {formatCurrency(event.totalSales)}
+                  </span>
+                </div>
+              )}
+              {event.amountPaid > 0 && (
+                <div className="total-item">
+                  <strong>Paid:</strong>
+                  <span className="paid-amount">
+                    {formatCurrency(event.amountPaid)}
+                  </span>
+                </div>
+              )}
+              {event.balanceDue > 0 && (
+                <div className="total-item">
+                  <strong>Balance Due:</strong>
+                  <span className="balance-due">
+                    {formatCurrency(event.balanceDue)}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {event.customerConcerns.length > 0 && (
+        {/* Job Summary */}
+        {event.totalJobs > 0 && (
+          <div className="job-summary">
+            <div className="job-stats">
+              <div className="job-stat">
+                <span className="job-count">{event.totalJobs}</span>
+                <span className="job-label">Total Jobs</span>
+              </div>
+              {event.authorizedJobs > 0 && (
+                <div className="job-stat authorized">
+                  <span className="job-count">{event.authorizedJobs}</span>
+                  <span className="job-label">Authorized</span>
+                </div>
+              )}
+              {event.pendingJobs > 0 && (
+                <div className="job-stat pending">
+                  <span className="job-count">{event.pendingJobs}</span>
+                  <span className="job-label">Pending</span>
+                </div>
+              )}
+              {event.rejectedJobs > 0 && (
+                <div className="job-stat declined">
+                  <span className="job-count">{event.rejectedJobs}</span>
+                  <span className="job-label">Declined</span>
+                </div>
+              )}
+              {event.totalLaborHours > 0 && (
+                <div className="job-stat">
+                  <span className="job-count">
+                    {formatHours(event.totalLaborHours)}
+                  </span>
+                  <span className="job-label">Labor Hours</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Job Details */}
+        {event.jobDetails && event.jobDetails.length > 0 && (
+          <div className="job-details">
+            <strong>Job Details:</strong>
+            <div className="job-list">
+              {event.jobDetails.slice(0, 5).map((job, index) => (
+                <div key={job.id || index} className="job-item">
+                  <div className="job-header">
+                    <span className="job-name">{job.name}</span>
+                    <span
+                      className={`auth-badge ${
+                        getAuthorizationBadge(job.authorized).class
+                      }`}
+                    >
+                      {getAuthorizationBadge(job.authorized).text}
+                    </span>
+                  </div>
+                  <div className="job-financials">
+                    {job.laborTotal > 0 && (
+                      <span>Labor: {formatCurrency(job.laborTotal)}</span>
+                    )}
+                    {job.partsTotal > 0 && (
+                      <span>Parts: {formatCurrency(job.partsTotal)}</span>
+                    )}
+                    {job.laborHours > 0 && (
+                      <span>{formatHours(job.laborHours)}</span>
+                    )}
+                    <span className="job-total">
+                      Total: {formatCurrency(job.subtotal)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {event.jobDetails.length > 5 && (
+                <div className="more-jobs">
+                  + {event.jobDetails.length - 5} more jobs
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Customer Concerns */}
+        {event.customerConcerns && event.customerConcerns.length > 0 && (
           <div className="customer-concerns">
             <strong>Customer Concerns:</strong>
             <ul>
@@ -720,24 +932,91 @@ function RepairOrderCard({ event, formatCurrency, formatTime }) {
           </div>
         )}
 
-        <div className="event-footer">
-          <small>{event.event}</small>
+        {/* Metadata */}
+        <div className="metadata">
+          <div className="metadata-grid">
+            {event.customerId && (
+              <div className="metadata-item">
+                <strong>Customer ID:</strong> <span>{event.customerId}</span>
+              </div>
+            )}
+            {event.vehicleId && (
+              <div className="metadata-item">
+                <strong>Vehicle ID:</strong> <span>{event.vehicleId}</span>
+              </div>
+            )}
+            {event.technicianId && (
+              <div className="metadata-item">
+                <strong>Technician ID:</strong>{" "}
+                <span>{event.technicianId}</span>
+              </div>
+            )}
+            {event.serviceWriterId && (
+              <div className="metadata-item">
+                <strong>Service Writer ID:</strong>{" "}
+                <span>{event.serviceWriterId}</span>
+              </div>
+            )}
+            {event.mileage && (
+              <div className="metadata-item">
+                <strong>Miles In:</strong>{" "}
+                <span>{event.mileage.toLocaleString()}</span>
+              </div>
+            )}
+            {event.milesOut && (
+              <div className="metadata-item">
+                <strong>Miles Out:</strong>{" "}
+                <span>{event.milesOut.toLocaleString()}</span>
+              </div>
+            )}
+            {event.keyTag && (
+              <div className="metadata-item">
+                <strong>Key Tag:</strong> <span>{event.keyTag}</span>
+              </div>
+            )}
+            {event.createdDate && (
+              <div className="metadata-item">
+                <strong>Created:</strong>{" "}
+                <span>{formatTime(event.createdDate)}</span>
+              </div>
+            )}
+            {event.updatedDate && (
+              <div className="metadata-item">
+                <strong>Updated:</strong>{" "}
+                <span>{formatTime(event.updatedDate)}</span>
+              </div>
+            )}
+            {event.completedDate && (
+              <div className="metadata-item">
+                <strong>Completed:</strong>{" "}
+                <span>{formatTime(event.completedDate)}</span>
+              </div>
+            )}
+          </div>
         </div>
+
+        {event.event && (
+          <div className="event-footer">
+            <small>{event.event}</small>
+          </div>
+        )}
       </div>
     </>
   );
 }
 
-// Appointment Card
+// Appointment Card Component
 function AppointmentCard({ event, formatTime }) {
   return (
     <>
       <div className="event-header">
         <div className="event-title">
           <h3>Appointment</h3>
-          <span className={`status-badge ${event.status?.toLowerCase()}`}>
-            {event.status}
-          </span>
+          {event.status && (
+            <span className={`status-badge ${event.status.toLowerCase()}`}>
+              {event.status}
+            </span>
+          )}
           {event.arrived && <span className="arrived-badge">ARRIVED</span>}
         </div>
         <div className="event-meta">
@@ -746,7 +1025,7 @@ function AppointmentCard({ event, formatTime }) {
       </div>
 
       <div className="event-details">
-        <div className="appointment-title">{event.title}</div>
+        {event.title && <div className="appointment-title">{event.title}</div>}
 
         {event.startTime && event.endTime && (
           <div className="appointment-time">
@@ -754,7 +1033,7 @@ function AppointmentCard({ event, formatTime }) {
               hour: "2-digit",
               minute: "2-digit",
             })}{" "}
-            -
+            -{" "}
             {event.endTime.toLocaleTimeString([], {
               hour: "2-digit",
               minute: "2-digit",
@@ -774,9 +1053,26 @@ function AppointmentCard({ event, formatTime }) {
           </div>
         )}
 
-        <div className="event-footer">
-          <small>{event.event}</small>
-        </div>
+        {event.customerId && (
+          <div className="metadata">
+            <div className="metadata-grid">
+              <div className="metadata-item">
+                <strong>Customer ID:</strong> <span>{event.customerId}</span>
+              </div>
+              {event.vehicleId && (
+                <div className="metadata-item">
+                  <strong>Vehicle ID:</strong> <span>{event.vehicleId}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {event.event && (
+          <div className="event-footer">
+            <small>{event.event}</small>
+          </div>
+        )}
       </div>
     </>
   );
