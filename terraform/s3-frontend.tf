@@ -1,5 +1,5 @@
 # terraform/s3-frontend.tf
-# Clean S3 + CloudFront configuration without OAC
+# Complete working S3 + CloudFront configuration
 
 # Random suffix for unique bucket name
 resource "random_id" "bucket_suffix" {
@@ -11,7 +11,16 @@ resource "aws_s3_bucket" "frontend" {
   bucket = "${var.project_name}-frontend-${random_id.bucket_suffix.hex}"
 }
 
-# S3 bucket public access block - ALLOW public access
+# S3 bucket ownership controls - REQUIRED for ACLs
+resource "aws_s3_bucket_ownership_controls" "frontend" {
+  bucket = aws_s3_bucket.frontend.id
+
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+# S3 bucket public access block - DISABLE all blocks for public access
 resource "aws_s3_bucket_public_access_block" "frontend" {
   bucket = aws_s3_bucket.frontend.id
 
@@ -21,7 +30,18 @@ resource "aws_s3_bucket_public_access_block" "frontend" {
   restrict_public_buckets = false
 }
 
-# S3 bucket policy for public website access
+# S3 bucket ACL - make bucket public-read
+resource "aws_s3_bucket_acl" "frontend" {
+  depends_on = [
+    aws_s3_bucket_ownership_controls.frontend,
+    aws_s3_bucket_public_access_block.frontend,
+  ]
+
+  bucket = aws_s3_bucket.frontend.id
+  acl    = "public-read"
+}
+
+# S3 bucket policy for public access - backup to ACL
 resource "aws_s3_bucket_policy" "frontend" {
   bucket = aws_s3_bucket.frontend.id
 
@@ -38,16 +58,18 @@ resource "aws_s3_bucket_policy" "frontend" {
     ]
   })
 
-  depends_on = [aws_s3_bucket_public_access_block.frontend]
+  depends_on = [
+    aws_s3_bucket_public_access_block.frontend,
+    aws_s3_bucket_acl.frontend
+  ]
 }
 
-# CloudFront distribution for HTTPS access - NO OAC
+# CloudFront distribution for HTTPS access
 resource "aws_cloudfront_distribution" "frontend" {
   origin {
     domain_name = aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id   = "S3-${aws_s3_bucket.frontend.bucket}"
     
-    # Use legacy S3 origin config - no OAC
     s3_origin_config {
       origin_access_identity = ""
     }
@@ -76,7 +98,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     max_ttl     = 31536000
   }
 
-  # Handle React Router routes
+  # Handle React Router routes - redirect 403/404 to index.html
   custom_error_response {
     error_code         = 404
     response_code      = 200
@@ -102,6 +124,11 @@ resource "aws_cloudfront_distribution" "frontend" {
   tags = {
     Name = "${var.project_name}-frontend"
   }
+
+  depends_on = [
+    aws_s3_bucket.frontend,
+    aws_s3_bucket_policy.frontend
+  ]
 }
 
 # Outputs
