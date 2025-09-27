@@ -1,5 +1,5 @@
 # terraform/s3-frontend.tf
-# Simple S3 + CloudFront configuration that works
+# Clean S3 + CloudFront configuration without OAC
 
 # Random suffix for unique bucket name
 resource "random_id" "bucket_suffix" {
@@ -41,12 +41,13 @@ resource "aws_s3_bucket_policy" "frontend" {
   depends_on = [aws_s3_bucket_public_access_block.frontend]
 }
 
-# CloudFront distribution for HTTPS access
+# CloudFront distribution for HTTPS access - NO OAC
 resource "aws_cloudfront_distribution" "frontend" {
   origin {
     domain_name = aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id   = "S3-${aws_s3_bucket.frontend.bucket}"
     
+    # Use legacy S3 origin config - no OAC
     s3_origin_config {
       origin_access_identity = ""
     }
@@ -57,7 +58,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   default_root_object = "index.html"
 
   default_cache_behavior {
-    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
     cached_methods         = ["GET", "HEAD"]
     target_origin_id       = "S3-${aws_s3_bucket.frontend.bucket}"
     compress               = true
@@ -71,8 +72,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
 
     min_ttl     = 0
-    default_ttl = 3600
-    max_ttl     = 86400
+    default_ttl = 86400
+    max_ttl     = 31536000
   }
 
   # Handle React Router routes
@@ -100,10 +101,6 @@ resource "aws_cloudfront_distribution" "frontend" {
 
   tags = {
     Name = "${var.project_name}-frontend"
-  }
-
-  lifecycle {
-    create_before_destroy = true
   }
 }
 
