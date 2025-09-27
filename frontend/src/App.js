@@ -1,4 +1,4 @@
-// src/App.js - Clean Auto Shop Dashboard with Bulletproof Parser
+// src/App.js - Clean Auto Shop Dashboard with Fixed Parser
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
@@ -19,76 +19,43 @@ const log = (message, data = null) => {
   console.log(`[${timestamp}] ${message}`, data || "");
 };
 
-// Bulletproof Auto Shop Data Parser
+// Fixed Auto Shop Data Parser
 class AutoShopParser {
   static parseWebhook(webhook) {
     try {
       let data, event;
 
-      // Handle different webhook structures
+      // Handle different webhook structures - FIXED for your DynamoDB data
       if (webhook.body?.data) {
         data = webhook.body.data;
         event = webhook.body.event || "";
       } else if (webhook.data) {
         data = webhook.data;
         event = webhook.event || "";
+      } else if (webhook.parsed_body?.data) {
+        // This handles your DynamoDB structure
+        data = webhook.parsed_body.data;
+        event = webhook.parsed_body.event || "";
+      } else if (webhook.parsed_body) {
+        data = webhook.parsed_body;
+        event = webhook.parsed_body.event || "";
       } else {
         data = webhook;
         event = webhook.event || webhook.message || "";
       }
 
-      if (!data || typeof data !== "object") {
-        return this.createGenericEvent(webhook, "Invalid data structure");
+      // Skip events that don't have meaningful repair order data
+      if (!data || typeof data !== "object" || !data.repairOrderNumber) {
+        log("Skipping webhook - no repair order data", webhook);
+        return null;
       }
 
-      // Determine event type
-      const eventType = this.determineEventType(data, event);
-
-      switch (eventType) {
-        case "repair-order":
-          return this.parseRepairOrder(data, event, webhook);
-        case "appointment":
-          return this.parseAppointment(data, event, webhook);
-        case "inspection":
-          return this.parseInspection(data, event, webhook);
-        case "status-update":
-          return this.parseStatusUpdate(data, event, webhook);
-        default:
-          return this.parseGenericEvent(data, event, webhook);
-      }
+      // All your data appears to be repair orders, so parse as such
+      return this.parseRepairOrder(data, event, webhook);
     } catch (error) {
       log("Parser error", error);
-      return this.createGenericEvent(webhook, `Parse error: ${error.message}`);
+      return null;
     }
-  }
-
-  static determineEventType(data, event) {
-    const eventLower = (event || "").toLowerCase();
-
-    if (
-      data.repairOrderNumber ||
-      data.repair_order_number ||
-      eventLower.includes("repair order")
-    ) {
-      return "repair-order";
-    }
-    if (
-      data.appointmentStatus ||
-      data.appointment_status ||
-      eventLower.includes("appointment")
-    ) {
-      return "appointment";
-    }
-    if (
-      eventLower.includes("inspection") ||
-      eventLower.includes("viewed inspection")
-    ) {
-      return "inspection";
-    }
-    if (eventLower.includes("status") || eventLower.includes("updated")) {
-      return "status-update";
-    }
-    return "generic";
   }
 
   static safeGet(obj, ...keys) {
@@ -101,41 +68,40 @@ class AutoShopParser {
   }
 
   static normalizeAmount(amount) {
-    if (!amount || isNaN(amount)) return 0;
+    if (!amount || amount === null || amount === undefined) return 0;
+    if (isNaN(amount)) return 0;
+
     const num = parseFloat(amount);
-    return num > 100 ? num / 100 : num; // Convert cents to dollars if needed
+    if (num === 0) return 0;
+
+    // Your data is in cents, convert to dollars
+    return num / 100;
   }
 
   static parseRepairOrder(data, event, webhook) {
-    const orderNumber =
-      this.safeGet(
-        data,
-        "repairOrderNumber",
-        "repair_order_number",
-        "orderNumber"
-      ) || this.extractNumberFromText(event);
+    const orderNumber = data.repairOrderNumber;
+    const status = this.safeGet(data, "repairOrderStatus.name") || "Unknown";
+    const customLabel =
+      this.safeGet(data, "repairOrderCustomLabel.name") || null;
 
-    const status =
-      this.safeGet(data, "repairOrderStatus.name", "status.name", "status") ||
-      "Unknown";
-
+    // Handle financial data - your values are in cents
     const financials = {
-      laborSales: this.normalizeAmount(
-        this.safeGet(data, "laborSales", "labor_sales")
-      ),
-      partsSales: this.normalizeAmount(
-        this.safeGet(data, "partsSales", "parts_sales")
-      ),
-      totalSales: this.normalizeAmount(
-        this.safeGet(data, "totalSales", "total_sales")
-      ),
-      amountPaid: this.normalizeAmount(
-        this.safeGet(data, "amountPaid", "amount_paid")
-      ),
+      laborSales: this.normalizeAmount(data.laborSales),
+      partsSales: this.normalizeAmount(data.partsSales),
+      subletSales: this.normalizeAmount(data.subletSales),
+      discountTotal: this.normalizeAmount(data.discountTotal),
+      feeTotal: this.normalizeAmount(data.feeTotal),
+      taxes: this.normalizeAmount(data.taxes),
+      totalSales: this.normalizeAmount(data.totalSales),
+      amountPaid: this.normalizeAmount(data.amountPaid),
     };
 
     const jobs = data.jobs || [];
-    const concerns = this.extractConcerns(data);
+    const concerns = data.customerConcerns || [];
+
+    // Calculate job stats
+    const jobStats = this.calculateJobStats(jobs);
+    const balanceDue = financials.totalSales - financials.amountPaid;
 
     return {
       id: webhook.id || `repair-${orderNumber}-${Date.now()}`,
@@ -143,127 +109,51 @@ class AutoShopParser {
       timestamp: webhook.timestamp || new Date().toISOString(),
       orderNumber: orderNumber,
       status: status,
+      customLabel: customLabel,
       ...financials,
-      balanceDue: financials.totalSales - financials.amountPaid,
+      balanceDue: balanceDue,
       totalJobs: jobs.length,
-      customerConcerns: concerns,
-      priority: this.determinePriority(financials, status),
+      jobStats: jobStats,
+      customerConcerns: concerns.map((c) => c.concern || c).filter(Boolean),
+      priority: this.determinePriority(balanceDue, status),
       event: event,
+
+      // Additional metadata
+      customerId: data.customerId,
+      vehicleId: data.vehicleId,
+      shopId: data.shopId,
+      serviceWriterId: data.serviceWriterId,
+      technicianId: data.technicianId,
+      color: data.color,
+      createdDate: data.createdDate,
+      updatedDate: data.updatedDate,
     };
   }
 
-  static parseAppointment(data, event, webhook) {
-    const status =
-      this.safeGet(data, "appointmentStatus", "appointment_status", "status") ||
-      "Unknown";
-    const title =
-      this.safeGet(data, "title", "customerName", "name") || "Appointment";
+  static calculateJobStats(jobs) {
+    if (!Array.isArray(jobs)) return { authorized: 0, pending: 0, declined: 0 };
 
-    return {
-      id: webhook.id || `appointment-${Date.now()}`,
-      type: "appointment",
-      timestamp: webhook.timestamp || new Date().toISOString(),
-      status: status,
-      title: title,
-      description: this.safeGet(data, "description"),
-      priority: status.toLowerCase().includes("arrived") ? "high" : "normal",
-      event: event,
-    };
+    const stats = { authorized: 0, pending: 0, declined: 0 };
+
+    jobs.forEach((job) => {
+      if (job.authorized === true) {
+        stats.authorized++;
+      } else if (job.authorized === false) {
+        stats.declined++;
+      } else {
+        stats.pending++;
+      }
+    });
+
+    return stats;
   }
 
-  static parseInspection(data, event, webhook) {
-    const orderNumber = this.extractNumberFromText(event);
-    const customerName = this.extractCustomerFromText(event);
-
-    return {
-      id: webhook.id || `inspection-${Date.now()}`,
-      type: "inspection",
-      timestamp: webhook.timestamp || new Date().toISOString(),
-      orderNumber: orderNumber,
-      status: "Viewed",
-      title: `${customerName} - Inspection`,
-      description: event,
-      priority: "normal",
-      event: event,
-    };
-  }
-
-  static parseStatusUpdate(data, event, webhook) {
-    const orderNumber = this.extractNumberFromText(event);
-    const updatedBy = this.extractEmailFromText(event);
-
-    return {
-      id: webhook.id || `status-${Date.now()}`,
-      type: "status-update",
-      timestamp: webhook.timestamp || new Date().toISOString(),
-      orderNumber: orderNumber,
-      status: "Updated",
-      title: `Order #${orderNumber} Status Update`,
-      description: `Updated by ${updatedBy}`,
-      priority: "medium",
-      event: event,
-    };
-  }
-
-  static parseGenericEvent(data, event, webhook) {
-    return {
-      id: webhook.id || `generic-${Date.now()}`,
-      type: "generic",
-      timestamp: webhook.timestamp || new Date().toISOString(),
-      title: event || "Shop Event",
-      description: event,
-      status: "Event",
-      priority: "normal",
-      event: event,
-    };
-  }
-
-  static createGenericEvent(webhook, errorMsg) {
-    return {
-      id: `error-${Date.now()}`,
-      type: "generic",
-      timestamp: new Date().toISOString(),
-      title: "Event",
-      description: errorMsg,
-      status: "Event",
-      priority: "normal",
-      event: errorMsg,
-    };
-  }
-
-  static extractConcerns(data) {
-    const concerns =
-      this.safeGet(data, "customerConcerns", "customer_concerns") || [];
-    if (!Array.isArray(concerns)) return [];
-    return concerns
-      .map((c) => (typeof c === "string" ? c : c.concern))
-      .filter(Boolean);
-  }
-
-  static determinePriority(financials, status) {
-    if (financials.balanceDue > 500) return "high";
-    if (status.toLowerCase().includes("progress")) return "medium";
+  static determinePriority(balanceDue, status) {
+    if (balanceDue > 5000) return "high";
+    if (status && status.toLowerCase().includes("arrived")) return "high";
+    if (balanceDue > 1000) return "medium";
+    if (status && status.toLowerCase().includes("progress")) return "medium";
     return "normal";
-  }
-
-  static extractNumberFromText(text) {
-    if (!text) return null;
-    const match = text.match(/#(\d+)/);
-    return match ? match[1] : null;
-  }
-
-  static extractCustomerFromText(text) {
-    if (!text) return "Unknown";
-    const match = text.match(/^([A-Za-z]+ [A-Za-z]+)/);
-    return match ? match[1] : "Unknown";
-  }
-
-  static extractEmailFromText(text) {
-    if (!text) return "Unknown";
-    const match = text.match(
-      /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/
-    );
-    return match ? match[1] : "Unknown";
   }
 }
 
@@ -697,25 +587,21 @@ function App() {
 // Event Card Component
 function EventCard({ event, formatCurrency, formatTime }) {
   const getEventTitle = () => {
-    switch (event.type) {
-      case "repair-order":
-        return `Repair Order #${event.orderNumber || "Unknown"}`;
-      case "appointment":
-        return "Appointment";
-      case "inspection":
-        return "Inspection";
-      case "status-update":
-        return "Status Update";
-      default:
-        return event.title || "Shop Event";
-    }
+    return `Repair Order #${event.orderNumber}`;
   };
 
   const getStatusBadge = () => {
     const status = event.status || "Unknown";
     const statusClass = status.toLowerCase().replace(/\s+/g, "-");
 
-    return <span className={`status-badge ${statusClass}`}>{status}</span>;
+    return (
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+        <span className={`status-badge ${statusClass}`}>{status}</span>
+        {event.customLabel && event.customLabel !== status && (
+          <span className="custom-label">{event.customLabel}</span>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -736,92 +622,107 @@ function EventCard({ event, formatCurrency, formatTime }) {
       </div>
 
       <div className="event-details">
-        {/* Repair Order Details */}
-        {event.type === "repair-order" && (
-          <>
-            {(event.totalSales > 0 || event.laborSales > 0) && (
-              <div className="financial-summary">
-                {event.laborSales > 0 && (
-                  <div className="financial-item">
-                    <strong>Labor:</strong>
-                    <span>{formatCurrency(event.laborSales)}</span>
-                  </div>
-                )}
-                {event.partsSales > 0 && (
-                  <div className="financial-item">
-                    <strong>Parts:</strong>
-                    <span>{formatCurrency(event.partsSales)}</span>
-                  </div>
-                )}
-                {event.totalSales > 0 && (
-                  <div className="total-item">
-                    <strong>Total:</strong>
-                    <span className="total-amount">
-                      {formatCurrency(event.totalSales)}
-                    </span>
-                  </div>
-                )}
-                {event.balanceDue > 0 && (
-                  <div className="total-item">
-                    <strong>Balance Due:</strong>
-                    <span className="balance-due">
-                      {formatCurrency(event.balanceDue)}
-                    </span>
-                  </div>
-                )}
+        {/* Financial Summary */}
+        <div className="financial-summary">
+          <strong>Financial Summary</strong>
+          <div className="financial-grid">
+            {event.laborSales > 0 && (
+              <div className="financial-item">
+                <strong>Labor:</strong>
+                <span>{formatCurrency(event.laborSales)}</span>
               </div>
             )}
-
-            {event.totalJobs > 0 && (
-              <div className="job-summary">
-                <strong>Jobs:</strong> {event.totalJobs}
+            {event.partsSales > 0 && (
+              <div className="financial-item">
+                <strong>Parts:</strong>
+                <span>{formatCurrency(event.partsSales)}</span>
               </div>
             )}
-
-            {event.customerConcerns && event.customerConcerns.length > 0 && (
-              <div className="customer-concerns">
-                <strong>Customer Concerns:</strong>
-                <ul>
-                  {event.customerConcerns.map((concern, idx) => (
-                    <li key={idx}>{concern}</li>
-                  ))}
-                </ul>
+            {event.subletSales > 0 && (
+              <div className="financial-item">
+                <strong>Sublet:</strong>
+                <span>{formatCurrency(event.subletSales)}</span>
               </div>
             )}
-          </>
-        )}
+            {event.feeTotal > 0 && (
+              <div className="financial-item">
+                <strong>Fees:</strong>
+                <span>{formatCurrency(event.feeTotal)}</span>
+              </div>
+            )}
+            {event.taxes > 0 && (
+              <div className="financial-item">
+                <strong>Taxes:</strong>
+                <span>{formatCurrency(event.taxes)}</span>
+              </div>
+            )}
+          </div>
 
-        {/* Appointment Details */}
-        {event.type === "appointment" && event.title && (
-          <div className="appointment-title">{event.title}</div>
-        )}
+          <div className="total-section">
+            <div className="total-item">
+              <strong>Total Sales:</strong>
+              <span className="total-amount">
+                {formatCurrency(event.totalSales)}
+              </span>
+            </div>
+            {event.amountPaid > 0 && (
+              <div className="total-item">
+                <strong>Amount Paid:</strong>
+                <span className="paid-amount">
+                  {formatCurrency(event.amountPaid)}
+                </span>
+              </div>
+            )}
+            {event.balanceDue > 0 && (
+              <div className="total-item">
+                <strong>Balance Due:</strong>
+                <span className="balance-due">
+                  {formatCurrency(event.balanceDue)}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
 
-        {/* Inspection Details */}
-        {event.type === "inspection" && event.orderNumber && (
-          <div className="order-reference">
-            <strong>Repair Order:</strong> #{event.orderNumber}
+        {/* Job Summary */}
+        {event.totalJobs > 0 && event.jobStats && (
+          <div className="job-summary">
+            <strong>Jobs Summary</strong>
+            <div className="job-stats">
+              <div className="job-stat">
+                <span className="job-count">{event.totalJobs}</span>
+                <span className="job-label">Total</span>
+              </div>
+              <div className="job-stat authorized">
+                <span className="job-count">{event.jobStats.authorized}</span>
+                <span className="job-label">Authorized</span>
+              </div>
+              <div className="job-stat pending">
+                <span className="job-count">{event.jobStats.pending}</span>
+                <span className="job-label">Pending</span>
+              </div>
+              <div className="job-stat declined">
+                <span className="job-count">{event.jobStats.declined}</span>
+                <span className="job-label">Declined</span>
+              </div>
+            </div>
           </div>
         )}
 
-        {/* Status Update Details */}
-        {event.type === "status-update" && (
-          <>
-            {event.orderNumber && (
-              <div className="order-reference">
-                <strong>Repair Order:</strong> #{event.orderNumber}
-              </div>
-            )}
-            <div className="event-description">{event.description}</div>
-          </>
-        )}
-
-        {/* Generic Event Details */}
-        {event.type === "generic" && event.description && (
-          <div className="event-description">{event.description}</div>
+        {/* Customer Concerns */}
+        {event.customerConcerns && event.customerConcerns.length > 0 && (
+          <div className="customer-concerns">
+            <strong>Customer Concerns:</strong>
+            <ul>
+              {event.customerConcerns.map((concern, idx) => (
+                <li key={idx}>{concern}</li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {/* Event Footer */}
-        {event.event && event.event !== event.description && (
+        {event.event && (
           <div className="event-footer">
             <small>{event.event}</small>
           </div>
