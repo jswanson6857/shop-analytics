@@ -1,159 +1,15 @@
-// src/App.js - Auto Shop Management Dashboard - COMPLETE SOLUTION
+// src/App.js - Auto Shop Management Dashboard - COMPLETE WITH HISTORICAL DATA
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
 // Get WebSocket URL from environment - this MUST be embedded in build
 const WEBSOCKET_URL = process.env.REACT_APP_WEBSOCKET_URL;
+const REST_API_URL = process.env.REACT_APP_REST_API_URL;
 
 // Debug logging for connection issues
 const log = (message, data = null) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${message}`, data || "");
-};
-
-const getRestApiEndpoint = (websocketUrl) => {
-  if (!websocketUrl) return null;
-
-  try {
-    // WebSocket URL format: wss://WEBSOCKET_API_ID.execute-api.region.amazonaws.com/stage
-    // REST API URL format: https://REST_API_ID.execute-api.region.amazonaws.com/stage
-
-    // For now, we need to determine the REST API ID
-    // This is a temporary solution - ideally this should come from environment variables
-
-    const wsUrlParts = websocketUrl.replace("wss://", "").split("/");
-    const wsApiGatewayBase = wsUrlParts[0]; // WEBSOCKET_API_ID.execute-api.region.amazonaws.com
-    const stage = wsUrlParts[1] || "dev";
-
-    // Extract region from WebSocket URL
-    const urlParts = wsApiGatewayBase.split(".");
-    const region = urlParts[2]; // Should be the region
-
-    // IMPORTANT: You need to get your REST API ID from terraform output
-    // Run: cd terraform && terraform output rest_api_id
-    // For now, this is a placeholder - replace with your actual REST API ID
-    const REST_API_ID = "YOUR_REST_API_ID_HERE"; // GET THIS FROM: terraform output rest_api_id
-
-    const restApiEndpoint = `https://${REST_API_ID}.execute-api.${region}.amazonaws.com/${stage}/data`;
-
-    console.log(`🔄 WebSocket URL: ${websocketUrl}`);
-    console.log(`🔄 Derived REST API endpoint: ${restApiEndpoint}`);
-
-    return restApiEndpoint;
-  } catch (error) {
-    console.error(`❌ Error deriving REST API endpoint: ${error.message}`);
-    return null;
-  }
-};
-
-// Update your loadHistoricalData function in App.js:
-const loadHistoricalData = async () => {
-  if (!WEBSOCKET_URL) return;
-
-  try {
-    // Use the helper function to get the correct REST API endpoint
-    const dataEndpoint = getRestApiEndpoint(WEBSOCKET_URL);
-
-    if (!dataEndpoint || dataEndpoint.includes("YOUR_REST_API_ID_HERE")) {
-      console.error("❌ REST API ID not configured. Please:");
-      console.error("1. Run: cd terraform && terraform output rest_api_id");
-      console.error("2. Update the REST_API_ID in getRestApiEndpoint function");
-      console.error("3. Rebuild and deploy your React app");
-      return;
-    }
-
-    log(`🔄 Loading historical data from: ${dataEndpoint}`);
-    setConnectionStatus("loading-history");
-
-    const response = await fetch(dataEndpoint, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (response.ok) {
-      const historicalData = await response.json();
-      log(`📚 Received ${historicalData.length} historical events`);
-
-      if (
-        historicalData &&
-        Array.isArray(historicalData) &&
-        historicalData.length > 0
-      ) {
-        // Parse historical data using the same parser
-        const parsedEvents = historicalData
-          .map((rawEvent) => {
-            try {
-              return AutoShopParser.parseWebhook(rawEvent);
-            } catch (error) {
-              log(`Error parsing historical event: ${error.message}`);
-              return null;
-            }
-          })
-          .filter(Boolean)
-          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-        if (parsedEvents.length > 0 && mountedRef.current) {
-          setEvents(parsedEvents);
-          log(
-            `✅ Loaded ${parsedEvents.length} historical events on initial load`
-          );
-        }
-      } else {
-        log(`📭 No historical data available`);
-      }
-    } else {
-      log(
-        `⚠️ Historical data endpoint returned ${response.status}: ${response.statusText}`
-      );
-    }
-  } catch (error) {
-    log(`❌ Failed to load historical data: ${error.message}`);
-  } finally {
-    if (mountedRef.current && connectionStatus === "loading-history") {
-      setConnectionStatus("disconnected");
-    }
-  }
-};
-
-// Connection diagnostics
-const runConnectionDiagnostics = async (url) => {
-  const results = {
-    websocketUrl: url,
-    userAgent: navigator.userAgent,
-    networkOnline: navigator.onLine,
-    timestamp: new Date().toISOString(),
-    tests: {},
-  };
-
-  // Test 1: Basic URL format
-  try {
-    const wsUrl = new URL(url);
-    results.tests.urlFormat = {
-      success: true,
-      protocol: wsUrl.protocol,
-      hostname: wsUrl.hostname,
-      port: wsUrl.port || "default",
-    };
-  } catch (e) {
-    results.tests.urlFormat = { success: false, error: e.message };
-  }
-
-  // Test 2: Try HTTPS version of the endpoint first
-  try {
-    const httpsUrl = url.replace("wss://", "https://").replace("/dev", "");
-    // Remove the unused 'response' variable that was causing the ESLint error
-    await fetch(httpsUrl, {
-      method: "GET",
-      mode: "no-cors",
-    });
-    results.tests.httpsReachable = { success: true, status: "reachable" };
-  } catch (e) {
-    results.tests.httpsReachable = { success: false, error: e.message };
-  }
-
-  return results;
 };
 
 // Auto Shop Data Parser - Enhanced to handle full data structure
@@ -335,6 +191,7 @@ function App() {
   const [filteredEvents, setFilteredEvents] = useState([]);
   const [connectionStatus, setConnectionStatus] = useState("disconnected");
   const [connectionAttempts, setConnectionAttempts] = useState(0);
+  const [historicalDataLoaded, setHistoricalDataLoaded] = useState(false);
   const [filters, setFilters] = useState({
     type: "all",
     status: "all",
@@ -356,34 +213,14 @@ function App() {
   const websocketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const mountedRef = useRef(true);
-  const diagnosticsRunRef = useRef(false);
-
-  // Run diagnostics on first load
-  useEffect(() => {
-    if (!diagnosticsRunRef.current && WEBSOCKET_URL) {
-      diagnosticsRunRef.current = true;
-      runConnectionDiagnostics(WEBSOCKET_URL)
-        .then((results) => {
-          log("Connection diagnostics completed", results);
-        })
-        .catch((err) => {
-          log("Diagnostics failed", err);
-        });
-    }
-  }, []);
 
   // Load historical data on component mount
   useEffect(() => {
     const loadHistoricalData = async () => {
-      if (!WEBSOCKET_URL) return;
+      if (!REST_API_URL || historicalDataLoaded) return;
 
       try {
-        // Convert WebSocket URL to REST API endpoint for historical data
-        const wsUrlParts = WEBSOCKET_URL.replace("wss://", "").split("/");
-        const apiGatewayBase = wsUrlParts[0];
-        const stage = wsUrlParts[1] || "dev";
-        const dataEndpoint = `https://${apiGatewayBase}/${stage}/data`;
-
+        const dataEndpoint = `${REST_API_URL}/data`;
         log(`🔄 Loading historical data from: ${dataEndpoint}`);
         setConnectionStatus("loading-history");
 
@@ -418,20 +255,24 @@ function App() {
 
             if (parsedEvents.length > 0 && mountedRef.current) {
               setEvents(parsedEvents);
+              setHistoricalDataLoaded(true);
               log(
                 `✅ Loaded ${parsedEvents.length} historical events on initial load`
               );
             }
           } else {
             log(`📭 No historical data available`);
+            setHistoricalDataLoaded(true);
           }
         } else {
           log(
             `⚠️ Historical data endpoint returned ${response.status}: ${response.statusText}`
           );
+          setHistoricalDataLoaded(true);
         }
       } catch (error) {
         log(`❌ Failed to load historical data: ${error.message}`);
+        setHistoricalDataLoaded(true);
       } finally {
         if (mountedRef.current && connectionStatus === "loading-history") {
           setConnectionStatus("disconnected");
@@ -439,11 +280,10 @@ function App() {
       }
     };
 
-    if (mountedRef.current) {
+    if (mountedRef.current && !historicalDataLoaded) {
       loadHistoricalData();
     }
-    // Fixed: Added connectionStatus to dependency array
-  }, [connectionStatus]);
+  }, [historicalDataLoaded]);
 
   // Calculate statistics
   useEffect(() => {
@@ -518,7 +358,7 @@ function App() {
     setFilteredEvents(filtered);
   }, [events, filters]);
 
-  // ENHANCED WebSocket connection function with detailed error tracking
+  // ENHANCED WebSocket connection function
   const connectWebSocket = useCallback(() => {
     if (!mountedRef.current) return;
 
@@ -677,9 +517,15 @@ function App() {
       reconnectTimeoutRef.current = null;
     }
 
-    if (connectionStatus === "disconnected" && connectionAttempts === 0) {
+    // Only start WebSocket after historical data is loaded or failed to load
+    if (
+      historicalDataLoaded &&
+      connectionStatus === "disconnected" &&
+      connectionAttempts === 0
+    ) {
       connectWebSocket();
     } else if (
+      historicalDataLoaded &&
       (connectionStatus === "error" || connectionStatus === "disconnected") &&
       connectionAttempts > 0 &&
       connectionAttempts < 3
@@ -703,7 +549,12 @@ function App() {
         reconnectTimeoutRef.current = null;
       }
     };
-  }, [connectionStatus, connectionAttempts, connectWebSocket]);
+  }, [
+    connectionStatus,
+    connectionAttempts,
+    connectWebSocket,
+    historicalDataLoaded,
+  ]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -913,6 +764,12 @@ function App() {
                     filters above.
                   </p>
                 )}
+                {historicalDataLoaded && events.length === 0 && (
+                  <p>
+                    💡 No historical data found. New events will appear here in
+                    real-time.
+                  </p>
+                )}
               </>
             )}
 
@@ -920,6 +777,13 @@ function App() {
               WEBSOCKET_URL.includes("your-websocket-id")) && (
               <div className="setup-warning">
                 <strong>Setup Required:</strong> WebSocket URL not configured.
+              </div>
+            )}
+
+            {!REST_API_URL && (
+              <div className="setup-warning">
+                <strong>Setup Required:</strong> REST API URL not configured for
+                historical data.
               </div>
             )}
           </div>

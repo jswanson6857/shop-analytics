@@ -1,4 +1,4 @@
-# terraform/historical_data_handler.py - FIXED WITH PROPER CORS
+# terraform/historical_data_handler.py - FINAL FIXED VERSION
 import json
 import logging
 import os
@@ -68,9 +68,8 @@ def lambda_handler(event, context):
         
         logger.info(f"Fetching last {hours_back} hours of data, limit {limit} items")
         
-        # Query DynamoDB for recent data
+        # Query DynamoDB for recent data - FIXED: Remove invalid ScanIndexForward parameter
         try:
-            # Use a more efficient query approach - scan with filter for recent data
             response = table.scan(
                 FilterExpression='#ts >= :start_time',
                 ExpressionAttributeNames={
@@ -79,14 +78,13 @@ def lambda_handler(event, context):
                 ExpressionAttributeValues={
                     ':start_time': start_time.isoformat()
                 },
-                Limit=limit,
-                # Ensure we get the most recent items first
-                ScanIndexForward=False
+                Limit=limit
+                # REMOVED: ScanIndexForward=False (not valid for scan operation)
             )
             
             items = response.get('Items', [])
             
-            # Sort by timestamp descending (newest first)
+            # Sort by timestamp descending (newest first) - do this in Python instead
             items.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
             
             logger.info(f"Found {len(items)} historical items")
