@@ -283,7 +283,7 @@ function App() {
     if (mountedRef.current && !historicalDataLoaded) {
       loadHistoricalData();
     }
-  }, [historicalDataLoaded]);
+  }, [historicalDataLoaded, connectionStatus]);
 
   // Calculate statistics
   useEffect(() => {
