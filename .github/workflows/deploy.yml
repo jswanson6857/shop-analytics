@@ -149,7 +149,11 @@ jobs:
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: terraform apply -auto-approve -input=false
+        run: |
+          # Remove problematic OAC from state if it exists
+          terraform state rm aws_cloudfront_origin_access_control.frontend 2>/dev/null || true
+          # Apply normally
+          terraform apply -auto-approve -input=false
         env:
           TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
           TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
