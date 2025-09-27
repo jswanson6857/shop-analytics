@@ -538,3 +538,432 @@ body {
     font-size: 1.1rem;
   }
 }
+
+/* Add these styles to your App.css file - Complete robust styling */
+
+/* Additional event type borders */
+.event-card.payment {
+  border-left-color: #28a745;
+}
+
+.event-card.customer {
+  border-left-color: #fd7e14;
+}
+
+.event-card.vehicle {
+  border-left-color: #20c997;
+}
+
+.event-card.error {
+  border-left-color: #dc3545;
+  background-color: #fdf2f2;
+}
+
+/* Additional status badges */
+.status-badge.paid {
+  background: #28a745;
+}
+
+.status-badge.event {
+  background: #6c757d;
+}
+
+.status-badge.error {
+  background: #dc3545;
+}
+
+/* Priority badges */
+.priority-badge {
+  font-size: 0.6rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.priority-badge.priority-high {
+  background: #dc3545;
+  color: white;
+}
+
+.priority-badge.priority-medium {
+  background: #fd7e14;
+  color: white;
+}
+
+.priority-badge.priority-normal {
+  background: #6c757d;
+  color: white;
+}
+
+/* Enhanced financial summary */
+.financial-summary {
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  border-left: 3px solid #007bff;
+}
+
+.financial-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.financial-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #e9ecef;
+  font-size: 0.9rem;
+}
+
+.financial-item:last-child {
+  border-bottom: none;
+}
+
+.financial-item.discount {
+  color: #28a745;
+}
+
+.total-section {
+  border-top: 2px solid #007bff;
+  padding-top: 1rem;
+}
+
+.total-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  font-weight: 600;
+}
+
+.total-amount {
+  color: #007bff;
+  font-size: 1.1rem;
+}
+
+.paid-amount {
+  color: #28a745;
+}
+
+.balance-due {
+  color: #dc3545;
+  font-size: 1.1rem;
+}
+
+/* Enhanced job summary */
+.job-summary {
+  background: #e7f3ff;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  border-left: 3px solid #0066cc;
+}
+
+.job-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-around;
+  margin-bottom: 1rem;
+}
+
+.job-stat {
+  text-align: center;
+  min-width: 60px;
+}
+
+.job-count {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #333;
+}
+
+.job-label {
+  display: block;
+  font-size: 0.7rem;
+  color: #666;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+.job-stat.authorized .job-count {
+  color: #28a745;
+}
+
+.job-stat.pending .job-count {
+  color: #fd7e14;
+}
+
+.job-stat.declined .job-count {
+  color: #dc3545;
+}
+
+/* Payment specific styles */
+.payment-amount {
+  background: #d4edda;
+  color: #155724;
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.payment-method {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0;
+  color: #666;
+}
+
+/* Order reference styling */
+.order-reference {
+  background: #e7f3ff;
+  color: #0056b3;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+/* Status change styling */
+.status-change {
+  background: #f8f9fa;
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  border-left: 3px solid #6f42c1;
+  font-family: 'Courier New', monospace;
+}
+
+/* Customer and vehicle content */
+.customer-name,
+.vehicle-description {
+  background: #fff3cd;
+  color: #856404;
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  border-left: 3px solid #ffc107;
+}
+
+/* Error content styling */
+.error-content {
+  background: #f8d7da;
+  padding: 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  border-left: 3px solid #dc3545;
+}
+
+.error-message {
+  color: #721c24;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.error-details {
+  margin-top: 0.5rem;
+}
+
+.error-details summary {
+  cursor: pointer;
+  color: #721c24;
+  font-weight: 600;
+}
+
+.error-details pre {
+  background: #ffffff;
+  padding: 0.5rem;
+  border-radius: 4px;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  max-height: 200px;
+  overflow: auto;
+}
+
+/* Debug section styling */
+.debug-section {
+  margin-top: 1rem;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  background: #f8f9fa;
+}
+
+.debug-section summary {
+  padding: 0.5rem;
+  cursor: pointer;
+  font-weight: 600;
+  color: #495057;
+  background: #e9ecef;
+  border-radius: 6px 6px 0 0;
+}
+
+.debug-content {
+  padding: 1rem;
+}
+
+.debug-content h5 {
+  margin: 0 0 0.5rem 0;
+  color: #495057;
+  font-size: 0.9rem;
+}
+
+.debug-content pre {
+  background: #ffffff;
+  border: 1px solid #dee2e6;
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  max-height: 300px;
+  overflow: auto;
+  margin-bottom: 1rem;
+}
+
+/* Enhanced metadata grid */
+.metadata {
+  border-top: 1px solid #e9ecef;
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+
+.metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.5rem;
+}
+
+.metadata-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.metadata-item strong {
+  color: #495057;
+  font-weight: 600;
+  margin-right: 0.5rem;
+}
+
+/* Inspection specific styles */
+.inspection-type {
+  background: #cce7ff;
+  color: #0056b3;
+  padding: 0.5rem;
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+/* Generic event styles */
+.generic-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.75rem;
+}
+
+.event-description {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0;
+  color: #555;
+  line-height: 1.4;
+}
+
+/* Updated filter options */
+.filters select {
+  max-width: 200px;
+}
+
+/* Enhanced responsive design */
+@media (max-width: 768px) {
+  .financial-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .job-stats {
+    justify-content: space-between;
+  }
+  
+  .job-stat {
+    min-width: 50px;
+  }
+  
+  .job-count {
+    font-size: 1.2rem;
+  }
+  
+  .metadata-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .metadata-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+  
+  .debug-content pre {
+    font-size: 0.7rem;
+    max-height: 150px;
+  }
+}
+
+@media (max-width: 480px) {
+  .financial-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .job-stats {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .job-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid #e9ecef;
+  }
+  
+  .job-count {
+    font-size: 1rem;
+  }
+  
+  .job-label {
+    font-size: 0.8rem;
+    margin-top: 0;
+  }
+}
+
+/* Print-friendly styles */
+@media print {
+  .debug-section,
+  .error-details {
+    display: none;
+  }
+  
+  .event-card {
+    break-inside: avoid;
+    margin-bottom: 1rem;
+  }
+  
+  .financial-summary,
+  .job-summary {
+    break-inside: avoid;
+  }
+}
