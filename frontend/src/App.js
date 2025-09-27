@@ -2,9 +2,16 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
-// Environment variables
-const WEBSOCKET_URL = process.env.REACT_APP_WEBSOCKET_URL;
-const REST_API_URL = process.env.REACT_APP_REST_API_URL;
+const WEBSOCKET_URL =
+  process.env.REACT_APP_WEBSOCKET_URL ||
+  "wss://u4sqthpk4c.execute-api.us-east-1.amazonaws.com/dev";
+const REST_API_URL =
+  process.env.REACT_APP_REST_API_URL ||
+  "https://x21d6cpmv6.execute-api.us-east-1.amazonaws.com/dev";
+
+// Add debug logging
+console.log("🔧 WebSocket URL:", WEBSOCKET_URL);
+console.log("🔧 REST API URL:", REST_API_URL);
 
 // Debug logging
 const log = (message, data = null) => {
