@@ -150,10 +150,8 @@ jobs:
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          # Force remove the problematic OAC resource from state
-          terraform state list | grep "aws_cloudfront_origin_access_control" | xargs -I {} terraform state rm {} || true
-          # Apply the clean configuration
-          terraform apply -auto-approve -input=false
+          # Force replace the CloudFront distribution to break the OAC dependency
+          terraform apply -auto-approve -input=false -replace=aws_cloudfront_distribution.frontend
         env:
           TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
           TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
