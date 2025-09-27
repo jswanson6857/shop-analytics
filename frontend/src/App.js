@@ -1,4 +1,4 @@
-// src/App.js - Auto Shop Management Dashboard - ROBUST Multi-Device Version
+// src/App.js - Auto Shop Management Dashboard - COMPLETE SOLUTION
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
@@ -9,6 +9,44 @@ const WEBSOCKET_URL = process.env.REACT_APP_WEBSOCKET_URL;
 const log = (message, data = null) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${message}`, data || "");
+};
+
+// Connection diagnostics
+const runConnectionDiagnostics = async (url) => {
+  const results = {
+    websocketUrl: url,
+    userAgent: navigator.userAgent,
+    networkOnline: navigator.onLine,
+    timestamp: new Date().toISOString(),
+    tests: {},
+  };
+
+  // Test 1: Basic URL format
+  try {
+    const wsUrl = new URL(url);
+    results.tests.urlFormat = {
+      success: true,
+      protocol: wsUrl.protocol,
+      hostname: wsUrl.hostname,
+      port: wsUrl.port || "default",
+    };
+  } catch (e) {
+    results.tests.urlFormat = { success: false, error: e.message };
+  }
+
+  // Test 2: Try HTTPS version of the endpoint first
+  try {
+    const httpsUrl = url.replace("wss://", "https://").replace("/dev", "");
+    const response = await fetch(httpsUrl, {
+      method: "GET",
+      mode: "no-cors",
+    });
+    results.tests.httpsReachable = { success: true, status: "reachable" };
+  } catch (e) {
+    results.tests.httpsReachable = { success: false, error: e.message };
+  }
+
+  return results;
 };
 
 // Auto Shop Data Parser - Enhanced to handle full data structure
@@ -191,6 +229,8 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState("disconnected");
   const [connectionAttempts, setConnectionAttempts] = useState(0);
   const [lastMessage, setLastMessage] = useState(null);
+  const [diagnostics, setDiagnostics] = useState(null);
+  const [connectionErrors, setConnectionErrors] = useState([]);
   const [filters, setFilters] = useState({
     type: "all",
     status: "all",
@@ -212,6 +252,106 @@ function App() {
   const websocketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const mountedRef = useRef(true);
+  const diagnosticsRunRef = useRef(false);
+
+  // Run diagnostics on first load
+  useEffect(() => {
+    if (!diagnosticsRunRef.current && WEBSOCKET_URL) {
+      diagnosticsRunRef.current = true;
+      runConnectionDiagnostics(WEBSOCKET_URL)
+        .then((results) => {
+          setDiagnostics(results);
+          log("Connection diagnostics completed", results);
+        })
+        .catch((err) => {
+          log("Diagnostics failed", err);
+          setDiagnostics({ error: err.message });
+        });
+    }
+  }, []);
+
+  // Add connection error tracking
+  const addConnectionError = useCallback((error) => {
+    const errorEntry = {
+      timestamp: new Date().toISOString(),
+      error: error,
+      userAgent: navigator.userAgent,
+      url: WEBSOCKET_URL,
+    };
+    setConnectionErrors((prev) => [errorEntry, ...prev.slice(0, 4)]);
+  }, []);
+
+  // Load historical data on component mount
+  useEffect(() => {
+    const loadHistoricalData = async () => {
+      if (!WEBSOCKET_URL) return;
+
+      try {
+        // Convert WebSocket URL to REST API endpoint for historical data
+        const wsUrlParts = WEBSOCKET_URL.replace("wss://", "").split("/");
+        const apiGatewayBase = wsUrlParts[0];
+        const stage = wsUrlParts[1] || "dev";
+        const dataEndpoint = `https://${apiGatewayBase}/${stage}/data`;
+
+        log(`🔄 Loading historical data from: ${dataEndpoint}`);
+        setConnectionStatus("loading-history");
+
+        const response = await fetch(dataEndpoint, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (response.ok) {
+          const historicalData = await response.json();
+          log(`📚 Received ${historicalData.length} historical events`);
+
+          if (
+            historicalData &&
+            Array.isArray(historicalData) &&
+            historicalData.length > 0
+          ) {
+            // Parse historical data using the same parser
+            const parsedEvents = historicalData
+              .map((rawEvent) => {
+                try {
+                  return AutoShopParser.parseWebhook(rawEvent);
+                } catch (error) {
+                  log(`Error parsing historical event: ${error.message}`);
+                  return null;
+                }
+              })
+              .filter(Boolean)
+              .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            if (parsedEvents.length > 0 && mountedRef.current) {
+              setEvents(parsedEvents);
+              log(
+                `✅ Loaded ${parsedEvents.length} historical events on initial load`
+              );
+            }
+          } else {
+            log(`📭 No historical data available`);
+          }
+        } else {
+          log(
+            `⚠️ Historical data endpoint returned ${response.status}: ${response.statusText}`
+          );
+        }
+      } catch (error) {
+        log(`❌ Failed to load historical data: ${error.message}`);
+      } finally {
+        if (mountedRef.current && connectionStatus === "loading-history") {
+          setConnectionStatus("disconnected");
+        }
+      }
+    };
+
+    if (mountedRef.current) {
+      loadHistoricalData();
+    }
+  }, []);
 
   // Calculate statistics
   useEffect(() => {
@@ -286,19 +426,18 @@ function App() {
     setFilteredEvents(filtered);
   }, [events, filters]);
 
-  // ROBUST WebSocket connection function
+  // ENHANCED WebSocket connection function with detailed error tracking
   const connectWebSocket = useCallback(() => {
-    // Don't connect if component is unmounted
     if (!mountedRef.current) return;
 
-    // Check if we have a valid URL
     if (!WEBSOCKET_URL || WEBSOCKET_URL.includes("your-websocket-id")) {
-      log("WebSocket URL not configured", WEBSOCKET_URL);
+      const error = `WebSocket URL not configured properly: ${WEBSOCKET_URL}`;
+      log(error);
+      addConnectionError(error);
       setConnectionStatus("error");
       return;
     }
 
-    // Don't create new connection if one exists and is open/connecting
     if (
       websocketRef.current &&
       (websocketRef.current.readyState === WebSocket.CONNECTING ||
@@ -308,46 +447,45 @@ function App() {
       return;
     }
 
-    // Clean up existing connection
     if (websocketRef.current) {
       websocketRef.current.close();
       websocketRef.current = null;
     }
 
-    log("Connecting to WebSocket", WEBSOCKET_URL);
+    log(`🔌 Attempting WebSocket connection to: ${WEBSOCKET_URL}`);
     setConnectionStatus("connecting");
 
     try {
       const websocket = new WebSocket(WEBSOCKET_URL);
       websocketRef.current = websocket;
 
-      // Connection timeout - be generous for mobile networks
       const connectionTimeout = setTimeout(() => {
         if (websocket.readyState === WebSocket.CONNECTING) {
-          log("WebSocket connection timeout");
+          const timeoutError = `WebSocket connection timeout after 30 seconds`;
+          log(`❌ ${timeoutError}`);
+          addConnectionError(timeoutError);
           websocket.close();
           if (mountedRef.current) {
             setConnectionStatus("error");
           }
         }
-      }, 20000); // 20 second timeout for mobile
+      }, 30000);
 
       websocket.onopen = () => {
         clearTimeout(connectionTimeout);
-        log("✅ WebSocket connected successfully");
+        log(`✅ WebSocket connected successfully`);
 
         if (mountedRef.current) {
           setConnectionStatus("connected");
           setConnectionAttempts(0);
+          setConnectionErrors([]);
         }
 
-        // Send ping to test connection
         try {
           websocket.send(
             JSON.stringify({
               type: "ping",
               timestamp: new Date().toISOString(),
-              userAgent: navigator.userAgent,
             })
           );
           log("📡 Ping sent");
@@ -359,7 +497,7 @@ function App() {
       websocket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          log("📨 Message received", message.type);
+          log(`📨 Message received: ${message.type}`);
 
           if (mountedRef.current) {
             setLastMessage(new Date().toISOString());
@@ -375,13 +513,28 @@ function App() {
             const parsedEvent = AutoShopParser.parseWebhook(rawWebhook);
             if (parsedEvent && mountedRef.current) {
               log(
-                "🎯 Adding new event",
-                parsedEvent.orderNumber || parsedEvent.title
+                `🎯 Adding new real-time event: ${
+                  parsedEvent.orderNumber || parsedEvent.title
+                }`
               );
-              setEvents((prev) => [parsedEvent, ...prev.slice(0, 499)]);
+
+              setEvents((prev) => {
+                const eventExists = prev.some(
+                  (existingEvent) =>
+                    existingEvent.id === parsedEvent.id &&
+                    existingEvent.timestamp === parsedEvent.timestamp
+                );
+
+                if (eventExists) {
+                  log(
+                    `🔄 Event ${parsedEvent.id} already exists, skipping duplicate`
+                  );
+                  return prev;
+                }
+
+                return [parsedEvent, ...prev.slice(0, 499)];
+              });
             }
-          } else if (message.type === "pong") {
-            log("🏓 Pong received");
           }
         } catch (error) {
           log("❌ Error parsing message", error);
@@ -390,14 +543,13 @@ function App() {
 
       websocket.onclose = (event) => {
         clearTimeout(connectionTimeout);
-        log(`🔌 WebSocket closed: ${event.code} - ${event.reason}`);
+        log(`🔌 WebSocket closed: Code ${event.code} - ${event.reason}`);
 
         if (websocketRef.current === websocket) {
           websocketRef.current = null;
         }
 
         if (mountedRef.current) {
-          // Only reconnect if it wasn't a clean close
           if (
             event.code !== 1000 &&
             event.code !== 1001 &&
@@ -429,28 +581,24 @@ function App() {
         setConnectionAttempts((prev) => prev + 1);
       }
     }
-  }, [connectionAttempts]);
+  }, [connectionAttempts, addConnectionError]);
 
   // Connection management with proper cleanup
   useEffect(() => {
     if (!mountedRef.current) return;
 
-    // Clear existing timeout
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
 
-    // Initial connection or reconnection logic
     if (connectionStatus === "disconnected" && connectionAttempts === 0) {
-      // Connect immediately
       connectWebSocket();
     } else if (
       (connectionStatus === "error" || connectionStatus === "disconnected") &&
       connectionAttempts > 0 &&
       connectionAttempts < 3
     ) {
-      // Exponential backoff with shorter delays for mobile
       const delay = Math.min(
         2000 * Math.pow(1.5, connectionAttempts - 1),
         10000
@@ -524,6 +672,8 @@ function App() {
         return "#28a745";
       case "connecting":
         return "#17a2b8";
+      case "loading-history":
+        return "#6f42c1";
       case "disconnected":
         return "#ffc107";
       case "error":
@@ -541,6 +691,8 @@ function App() {
         return "Connected";
       case "connecting":
         return "Connecting...";
+      case "loading-history":
+        return "Loading data...";
       case "disconnected":
         return "Disconnected";
       case "error":
@@ -658,38 +810,31 @@ function App() {
       <main className="events-container">
         {filteredEvents.length === 0 ? (
           <div className="empty-state">
-            <h2>Waiting for shop events...</h2>
-            <p>
-              Real-time data will appear here when your auto shop system sends
-              webhooks.
-            </p>
-
-            {!WEBSOCKET_URL || WEBSOCKET_URL.includes("your-websocket-id") ? (
-              <div className="setup-warning">
-                <strong>Setup Required:</strong> WebSocket URL not configured.
-                <br />
-                Current URL: {WEBSOCKET_URL || "Not set"}
-              </div>
+            {connectionStatus === "loading-history" ? (
+              <>
+                <h2>Loading historical data...</h2>
+                <p>Fetching recent auto shop events from the database.</p>
+              </>
             ) : (
-              <div className="connection-info">
-                <strong>Connected to:</strong> {WEBSOCKET_URL}
-                {lastMessage && (
-                  <div>
-                    Last message: {new Date(lastMessage).toLocaleTimeString()}
-                  </div>
+              <>
+                <h2>Waiting for shop events...</h2>
+                <p>
+                  Real-time data will appear here when your auto shop system
+                  sends webhooks.
+                </p>
+                {events.length > 0 && (
+                  <p>
+                    📊 {events.length} events loaded from database. Check your
+                    filters above.
+                  </p>
                 )}
-              </div>
+              </>
             )}
 
-            {(connectionStatus === "error" ||
-              connectionStatus === "failed") && (
+            {(!WEBSOCKET_URL ||
+              WEBSOCKET_URL.includes("your-websocket-id")) && (
               <div className="setup-warning">
-                <strong>Connection Issue:</strong> Unable to connect to
-                WebSocket server.
-                <br />
-                Status: {connectionStatus}
-                <br />
-                Attempts: {connectionAttempts}/3
+                <strong>Setup Required:</strong> WebSocket URL not configured.
               </div>
             )}
           </div>
@@ -754,15 +899,6 @@ function RepairOrderCard({ event, formatCurrency, formatTime, formatHours }) {
           {event.customLabel && event.customLabel !== event.status && (
             <span className="custom-label">{event.customLabel}</span>
           )}
-        </div>
-        <div className="event-meta">
-          <span className="timestamp">{formatTime(event.timestamp)}</span>
-          <span
-            className="priority-badge"
-            style={{ backgroundColor: getPriorityColor(event.priority) }}
-          >
-            {event.priority}
-          </span>
         </div>
       </div>
 
