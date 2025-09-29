@@ -1,4 +1,4 @@
-// src/App.js - Complete Auto Shop Dashboard
+// src/App.js - Complete Auto Shop Dashboard with DEBUG LOGGING
 import React, {
   useState,
   useEffect,
@@ -48,7 +48,13 @@ function App() {
   // Load historical data
   useEffect(() => {
     const loadHistoricalData = async () => {
-      if (!REST_API_URL || historicalDataLoaded) return;
+      if (!REST_API_URL || historicalDataLoaded) {
+        console.log("⚠️ Skipping load:", {
+          REST_API_URL: !!REST_API_URL,
+          historicalDataLoaded,
+        });
+        return;
+      }
 
       try {
         const dataEndpoint = `${REST_API_URL}/data`;
@@ -101,16 +107,17 @@ function App() {
                 Object.keys(parsedEvents[0])
               );
 
+              // DEBUG: Log before setting
+              console.log("📦 SETTING EVENTS - ABOUT TO CALL setEvents with:", {
+                count: parsedEvents.length,
+                firstId: parsedEvents[0]?.id,
+                firstRO: parsedEvents[0]?.repairOrderNumber,
+              });
+
               // Set events - this should trigger re-render
               setEvents(parsedEvents);
 
-              // Verify state was set
-              setTimeout(() => {
-                console.log(
-                  "🔄 Events state after setState:",
-                  parsedEvents.length
-                );
-              }, 100);
+              console.log("📦 setEvents CALLED");
             } else if (parsedEvents.length === 0) {
               console.warn("⚠️  No orders to display");
             }
@@ -121,7 +128,7 @@ function App() {
         console.log(`Failed to load historical data: ${error.message}`);
         setHistoricalDataLoaded(true);
       } finally {
-        if (mountedRef.current && connectionStatus === "loading-history") {
+        if (mountedRef.current) {
           setConnectionStatus("disconnected");
         }
       }
@@ -208,13 +215,18 @@ function App() {
 
   // Filter data
   const filteredData = useMemo(() => {
-    console.log("🔍 Filtering data:", {
+    console.log("🔍 FILTERING - START:", {
       totalEvents: events.length,
       searchTerm,
       dateFrom,
       dateTo,
       statusFilter,
     });
+
+    if (events.length === 0) {
+      console.log("⚠️ No events to filter!");
+      return [];
+    }
 
     const filtered = events.filter((ro) => {
       // Search filter
@@ -258,9 +270,51 @@ function App() {
       return passes;
     });
 
-    console.log(`✅ Filtered to ${filtered.length} records`);
+    console.log(
+      `✅ FILTERING - DONE: ${filtered.length} of ${events.length} records passed`
+    );
     return filtered;
   }, [events, searchTerm, dateFrom, dateTo, statusFilter]);
+
+  // DEBUG: Monitor state changes
+  useEffect(() => {
+    console.log("🎯 RENDER CHECK:", {
+      eventsLength: events.length,
+      filteredDataLength: filteredData.length,
+      currentPage,
+      connectionStatus,
+      historicalDataLoaded,
+    });
+
+    if (events.length > 0 && filteredData.length === 0) {
+      console.warn("⚠️ WARNING: Have events but filtered to 0!");
+      console.log("Filter settings:", {
+        searchTerm,
+        dateFrom,
+        dateTo,
+        statusFilter,
+      });
+
+      // Check first event
+      const firstEvent = events[0];
+      console.log("First event sample:", {
+        repairOrderNumber: firstEvent.repairOrderNumber,
+        customer: firstEvent.customer,
+        createdDate: firstEvent.createdDate,
+        repairOrderStatus: firstEvent.repairOrderStatus,
+      });
+    }
+  }, [
+    events,
+    filteredData,
+    currentPage,
+    connectionStatus,
+    historicalDataLoaded,
+    searchTerm,
+    dateFrom,
+    dateTo,
+    statusFilter,
+  ]);
 
   const getStatusColor = () => {
     switch (connectionStatus) {
