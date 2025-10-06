@@ -1,4 +1,4 @@
-// src/utils/dataParser.js - FIXED: Includes tax in all calculations
+// src/utils/dataParser.js - COMPLETE FIX: Proportional tax + Sales terminology
 
 export const JOB_CATEGORIES = {
   DIAG: {
@@ -53,8 +53,23 @@ export const getJobCategory = (jobName) => {
   return "OTHER";
 };
 
+// NEW: Calculate proportional tax for a job
+export const calculateJobTax = (job, roTotalSales, roTaxes) => {
+  if (!roTotalSales || roTotalSales === 0) return 0;
+
+  // Proportional tax: (job.subtotal / ro.totalSales) × ro.taxes
+  const taxPortion = (job.subtotal / roTotalSales) * roTaxes;
+  return Math.round(taxPortion); // Round to nearest cent
+};
+
+// NEW: Calculate job total including tax
+export const calculateJobTotal = (job, roTotalSales, roTaxes) => {
+  const jobTax = calculateJobTax(job, roTotalSales, roTaxes);
+  return job.subtotal + jobTax;
+};
+
 const determinePriority = (data) => {
-  // FIXED: Include tax in balance calculation
+  // Use totalSales + taxes for balance calculation
   const totalWithTax = (data.totalSales || 0) + (data.taxes || 0);
   const balanceDue = totalWithTax - (data.amountPaid || 0);
   const status = data.repairOrderStatus?.name || "";
@@ -68,12 +83,6 @@ const determinePriority = (data) => {
 
 export const parseWebhookData = (webhook) => {
   try {
-    console.log("🔍 parseWebhookData called with:", {
-      hasWebhook: !!webhook,
-      webhookKeys: webhook ? Object.keys(webhook) : [],
-      webhookId: webhook?.id,
-    });
-
     let data, event;
 
     // Handle different webhook structures
@@ -110,26 +119,35 @@ export const parseWebhookData = (webhook) => {
     }
 
     if (!data || typeof data !== "object") {
-      console.log("❌ SKIPPED: no data object");
       return null;
     }
 
     if (!data.repairOrderNumber && !data.id) {
-      console.log("❌ SKIPPED: no repair order identifier");
       return null;
     }
 
     const orderNumber = data.repairOrderNumber || data.id;
 
-    // Parse jobs and add categories
-    const jobs = (data.jobs || []).map((job) => ({
-      ...job,
-      category: getJobCategory(job.name),
-    }));
+    // Parse jobs and add categories + calculated tax
+    const roTotalSales = data.totalSales || 0;
+    const roTaxes = data.taxes || 0;
 
-    // Calculate job stats
+    const jobs = (data.jobs || []).map((job) => {
+      const jobTax = calculateJobTax(job, roTotalSales, roTaxes);
+      const jobTotal = job.subtotal + jobTax;
+
+      return {
+        ...job,
+        category: getJobCategory(job.name),
+        calculatedTax: jobTax, // NEW: Proportional tax
+        totalWithTax: jobTotal, // NEW: Total including tax
+      };
+    });
+
+    // Calculate job stats (ONLY approved jobs count toward sales)
+    const approvedJobs = jobs.filter((j) => j.authorized === true);
     const jobStats = {
-      authorized: jobs.filter((j) => j.authorized === true).length,
+      authorized: approvedJobs.length,
       declined: jobs.filter((j) => j.authorized === false).length,
       pending: jobs.filter(
         (j) => j.authorized === null || j.authorized === undefined
@@ -140,32 +158,27 @@ export const parseWebhookData = (webhook) => {
       ? `${webhook.id}`
       : `repair-${orderNumber}-${webhook.timestamp || Date.now()}`;
 
-    // FIXED: Calculate balance due INCLUDING TAX
-    const totalWithTax = (data.totalSales || 0) + (data.taxes || 0);
+    // Calculate totals
+    const totalWithTax = roTotalSales + roTaxes;
     const balanceDue = totalWithTax - (data.amountPaid || 0);
 
     const parsed = {
       ...data,
       id: uniqueId,
       timestamp:
-        webhook.timestamp || data.createdDate || new Date().toISOString(),
+        webhook.timestamp ||
+        data.updatedDate ||
+        data.createdDate ||
+        new Date().toISOString(),
       event: event || "repair_order.unknown",
       repairOrderNumber: orderNumber,
       jobs: jobs,
       jobStats: jobStats,
-      totalWithTax: totalWithTax, // NEW: Total including tax
-      balanceDue: balanceDue, // FIXED: Balance includes tax
+      approvedJobs: approvedJobs, // NEW: Only approved jobs
+      totalWithTax: totalWithTax,
+      balanceDue: balanceDue,
       priority: determinePriority(data),
     };
-
-    console.log("✅ PARSED SUCCESSFULLY:", {
-      id: parsed.id,
-      repairOrderNumber: parsed.repairOrderNumber,
-      totalSales: parsed.totalSales,
-      taxes: parsed.taxes,
-      totalWithTax: parsed.totalWithTax,
-      balanceDue: parsed.balanceDue,
-    });
 
     return parsed;
   } catch (error) {

@@ -1,4 +1,4 @@
-// src/App.js - FIXED VERSION with Dark Mode & Bug Fixes
+// src/App.js - COMPLETE FIX: All issues resolved
 import React, {
   useState,
   useEffect,
@@ -53,6 +53,7 @@ const ThemeToggle = () => {
       onClick={toggleTheme}
       className="theme-toggle-btn"
       aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
+      title={`Switch to ${isDark ? "light" : "dark"} mode`}
     >
       {isDark ? "☀️" : "🌙"}
     </button>
@@ -79,12 +80,11 @@ function AppContent() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedCategory, setSelectedCategory] = useState("all");
 
+  // NEW: For navigation from JobAnalytics to EventExplorer
+  const [expandedEventId, setExpandedEventId] = useState(null);
+
   const websocketRef = useRef(null);
   const mountedRef = useRef(true);
-
-  useEffect(() => {
-    console.log("📦 Events state changed:", events.length);
-  }, [events]);
 
   useEffect(() => {
     document.title = "Auto Shop Dashboard - Real-Time Orders";
@@ -110,10 +110,6 @@ function AppContent() {
             Array.isArray(historicalData) &&
             historicalData.length > 0
           ) {
-            console.log(
-              `📊 Processing ${historicalData.length} historical records...`
-            );
-
             const parsedEvents = historicalData
               .map((rawEvent) => parseWebhookData(rawEvent))
               .filter(Boolean)
@@ -217,7 +213,7 @@ function AppContent() {
     };
   }, []);
 
-  // FIXED: Filter data with proper date handling
+  // FIXED: Filter data using TIMESTAMP (last activity) not createdDate
   const filteredData = useMemo(() => {
     console.log("🔍 FILTERING - START:", {
       totalEvents: events.length,
@@ -240,12 +236,12 @@ function AppContent() {
         ro.technician?.firstName?.toLowerCase().includes(search) ||
         ro.event?.toLowerCase().includes(search);
 
-      // FIXED: Date filter - use both createdDate and timestamp
-      const eventDate = new Date(ro.createdDate || ro.timestamp);
+      // FIXED: Use TIMESTAMP (last activity) for date filtering
+      const activityDate = new Date(ro.timestamp); // Use timestamp (last activity)
       const matchesDateFrom =
-        !dateFrom || eventDate >= new Date(dateFrom + "T00:00:00");
+        !dateFrom || activityDate >= new Date(dateFrom + "T00:00:00");
       const matchesDateTo =
-        !dateTo || eventDate <= new Date(dateTo + "T23:59:59");
+        !dateTo || activityDate <= new Date(dateTo + "T23:59:59");
 
       // Status filter
       const matchesStatus =
@@ -259,6 +255,27 @@ function AppContent() {
     );
     return filtered;
   }, [events, searchTerm, dateFrom, dateTo, statusFilter]);
+
+  // NEW: Navigate to Event Explorer with specific RO expanded
+  const navigateToRO = useCallback(
+    (roNumber) => {
+      // Find the event with this RO number
+      const event = events.find((e) => e.repairOrderNumber === roNumber);
+      if (event) {
+        setCurrentPage("events");
+        setExpandedEventId(event.id);
+
+        // Scroll to the RO after a short delay
+        setTimeout(() => {
+          const element = document.getElementById(`ro-${event.id}`);
+          if (element) {
+            element.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        }, 100);
+      }
+    },
+    [events]
+  );
 
   const getStatusColor = () => {
     switch (connectionStatus) {
@@ -358,18 +375,22 @@ function AppContent() {
             setDateFrom={setDateFrom}
             dateTo={dateTo}
             setDateTo={setDateTo}
+            expandedEventId={expandedEventId}
+            setExpandedEventId={setExpandedEventId}
           />
         )}
 
         {currentPage === "analytics" && (
           <JobAnalyticsPage
             data={filteredData}
+            allData={events}
             selectedCategory={selectedCategory}
             setSelectedCategory={setSelectedCategory}
             dateFrom={dateFrom}
             setDateFrom={setDateFrom}
             dateTo={dateTo}
             setDateTo={setDateTo}
+            navigateToRO={navigateToRO}
           />
         )}
       </main>

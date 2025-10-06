@@ -1,4 +1,4 @@
-// src/components/RepairOrdersPage.js - FIXED: Shows tax-inclusive totals
+// src/components/RepairOrdersPage.js - FIXED: Shows job-level tax + Sales terminology
 import React, { useState, useMemo, useEffect } from "react";
 import {
   formatCurrency,
@@ -162,13 +162,13 @@ const RepairOrdersPage = ({
           </div>
           <div className="stat-item">
             <div className="stat-value">{stats.today}</div>
-            <div className="stat-label">Today</div>
+            <div className="stat-label">Today's Activity</div>
           </div>
           <div className="stat-item">
             <div className="stat-value">
               {formatCurrency(stats.totalRevenue)}
             </div>
-            <div className="stat-label">Total Revenue (incl. tax)</div>
+            <div className="stat-label">Total Sales (incl. tax)</div>
           </div>
           <div className="stat-item">
             <div className="stat-value">

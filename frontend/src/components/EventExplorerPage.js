@@ -1,5 +1,5 @@
-// src/components/EventExplorerPage.js - With Dark Mode Support
-import React, { useState, useMemo } from "react";
+// src/components/EventExplorerPage.js - With Dark Mode + Auto-Expand Support
+import React, { useState, useMemo, useEffect } from "react";
 import { formatCurrency, formatDate } from "../utils/dataParser";
 
 const EventExplorerPage = ({
@@ -10,10 +10,20 @@ const EventExplorerPage = ({
   setDateFrom,
   dateTo,
   setDateTo,
+  expandedEventId,
+  setExpandedEventId,
 }) => {
   const [expandedEvents, setExpandedEvents] = useState(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  // Auto-expand when navigated from JobAnalytics
+  useEffect(() => {
+    if (expandedEventId) {
+      setExpandedEvents(new Set([expandedEventId]));
+      setExpandedEventId(null); // Clear after expanding
+    }
+  }, [expandedEventId, setExpandedEventId]);
 
   const paginatedData = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
@@ -127,6 +137,7 @@ const EventExplorerPage = ({
           return (
             <div
               key={ro.id}
+              id={`ro-${ro.id}`}
               className="event-card"
               style={{ borderLeftColor: "#9C27B0" }}
             >
