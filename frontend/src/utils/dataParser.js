@@ -1,4 +1,4 @@
-// src/utils/dataParser.js - Parse webhook data with ZERO loss
+// src/utils/dataParser.js - FIXED: Includes tax in all calculations
 
 export const JOB_CATEGORIES = {
   DIAG: {
@@ -41,7 +41,6 @@ export const JOB_CATEGORIES = {
   FUEL: { keywords: ["fuel", "injector", "pump"], color: "#E65100" },
 };
 
-// Helper function - must be defined BEFORE parseWebhookData uses it
 export const getJobCategory = (jobName) => {
   if (!jobName) return "OTHER";
   const nameLower = jobName.toLowerCase();
@@ -54,9 +53,10 @@ export const getJobCategory = (jobName) => {
   return "OTHER";
 };
 
-// Helper function - must be defined BEFORE parseWebhookData uses it
 const determinePriority = (data) => {
-  const balanceDue = (data.totalSales || 0) - (data.amountPaid || 0);
+  // FIXED: Include tax in balance calculation
+  const totalWithTax = (data.totalSales || 0) + (data.taxes || 0);
+  const balanceDue = totalWithTax - (data.amountPaid || 0);
   const status = data.repairOrderStatus?.name || "";
 
   if (balanceDue > 500000) return "high"; // > $5000
@@ -66,16 +66,12 @@ const determinePriority = (data) => {
   return "normal";
 };
 
-// Main parser function
 export const parseWebhookData = (webhook) => {
   try {
     console.log("🔍 parseWebhookData called with:", {
       hasWebhook: !!webhook,
       webhookKeys: webhook ? Object.keys(webhook) : [],
       webhookId: webhook?.id,
-      hasBody: !!webhook?.body,
-      hasData: !!webhook?.data,
-      hasParsedBody: !!webhook?.parsed_body,
     });
 
     let data, event;
@@ -84,17 +80,13 @@ export const parseWebhookData = (webhook) => {
     if (webhook.body?.data) {
       data = webhook.body.data;
       event = webhook.body.event || "";
-      console.log("✅ Path 1: webhook.body.data");
     } else if (webhook.data) {
       data = webhook.data;
       event = webhook.event || "";
-      console.log("✅ Path 2: webhook.data");
     } else if (webhook.parsed_body?.data) {
       data = webhook.parsed_body.data;
       event = webhook.parsed_body.event || "";
-      console.log("✅ Path 3: webhook.parsed_body.data");
     } else if (webhook.parsed_body) {
-      // Try parsing the parsed_body directly
       try {
         const parsed =
           typeof webhook.parsed_body === "string"
@@ -104,49 +96,30 @@ export const parseWebhookData = (webhook) => {
         if (parsed.data) {
           data = parsed.data;
           event = parsed.event || "";
-          console.log("✅ Path 4a: parsed.data from parsed_body");
         } else {
           data = parsed;
           event = parsed.event || "";
-          console.log("✅ Path 4b: direct parsed_body");
         }
       } catch (e) {
         data = webhook.parsed_body;
         event = webhook.parsed_body.event || "";
-        console.log("✅ Path 4c: webhook.parsed_body (parse error)");
       }
     } else {
       data = webhook;
       event = webhook.event || webhook.message || "";
-      console.log("✅ Path 5: direct webhook");
     }
 
-    console.log("📦 Extracted data:", {
-      hasData: !!data,
-      dataType: typeof data,
-      event: event,
-      repairOrderNumber: data?.repairOrderNumber,
-      dataId: data?.id,
-    });
-
-    // Skip events that don't have meaningful repair order data
     if (!data || typeof data !== "object") {
       console.log("❌ SKIPPED: no data object");
       return null;
     }
 
-    // Check if this is a repair order (has repairOrderNumber OR id with jobs)
     if (!data.repairOrderNumber && !data.id) {
-      console.log("❌ SKIPPED: no repair order identifier", {
-        keys: Object.keys(data),
-        sample: data,
-      });
+      console.log("❌ SKIPPED: no repair order identifier");
       return null;
     }
 
-    // If it has jobs but no repairOrderNumber, try to use id
     const orderNumber = data.repairOrderNumber || data.id;
-    console.log("✅ Order number:", orderNumber);
 
     // Parse jobs and add categories
     const jobs = (data.jobs || []).map((job) => ({
@@ -163,41 +136,35 @@ export const parseWebhookData = (webhook) => {
       ).length,
     };
 
-    // FIXED: Generate truly unique ID by combining webhook.id with timestamp
-    // This prevents duplicate keys when same repair order appears multiple times
     const uniqueId = webhook.id
       ? `${webhook.id}`
       : `repair-${orderNumber}-${webhook.timestamp || Date.now()}`;
 
-    console.log("✅ Generated uniqueId:", uniqueId);
+    // FIXED: Calculate balance due INCLUDING TAX
+    const totalWithTax = (data.totalSales || 0) + (data.taxes || 0);
+    const balanceDue = totalWithTax - (data.amountPaid || 0);
 
-    // Return complete parsed data with ALL fields
-    // CRITICAL: Spread ...data FIRST, then override with unique values
     const parsed = {
-      // All repair order fields (46 total) - spread FIRST
       ...data,
-
-      // Webhook metadata - UNIQUE ID (overrides data.id)
       id: uniqueId,
       timestamp:
         webhook.timestamp || data.createdDate || new Date().toISOString(),
-      event: event || "repair_order.unknown", // CRITICAL: Event field
-
-      // Ensure repairOrderNumber exists (override if needed)
+      event: event || "repair_order.unknown",
       repairOrderNumber: orderNumber,
-
-      // Enhanced fields (override/add to data)
       jobs: jobs,
       jobStats: jobStats,
-      balanceDue: (data.totalSales || 0) - (data.amountPaid || 0),
+      totalWithTax: totalWithTax, // NEW: Total including tax
+      balanceDue: balanceDue, // FIXED: Balance includes tax
       priority: determinePriority(data),
     };
 
     console.log("✅ PARSED SUCCESSFULLY:", {
       id: parsed.id,
       repairOrderNumber: parsed.repairOrderNumber,
-      event: parsed.event,
-      jobCount: parsed.jobs?.length,
+      totalSales: parsed.totalSales,
+      taxes: parsed.taxes,
+      totalWithTax: parsed.totalWithTax,
+      balanceDue: parsed.balanceDue,
     });
 
     return parsed;
@@ -211,8 +178,6 @@ export const parseWebhookData = (webhook) => {
 export const formatCurrency = (cents) => {
   if (!cents && cents !== 0) return "$0.00";
 
-  // Values from your API are already in cents (e.g., 3500 = $35.00)
-  // Divide by 100 to convert cents to dollars
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",

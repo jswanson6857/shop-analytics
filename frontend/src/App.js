@@ -1,16 +1,63 @@
-// src/App.js - Complete Auto Shop Dashboard with DEBUG LOGGING
+// src/App.js - FIXED VERSION with Dark Mode & Bug Fixes
 import React, {
   useState,
   useEffect,
   useCallback,
   useRef,
   useMemo,
+  createContext,
+  useContext,
 } from "react";
 import "./App.css";
 import RepairOrdersPage from "./components/RepairOrdersPage";
 import EventExplorerPage from "./components/EventExplorerPage";
 import JobAnalyticsPage from "./components/JobAnalyticsPage";
 import { parseWebhookData } from "./utils/dataParser";
+
+// Theme Context
+const ThemeContext = createContext();
+
+export const useTheme = () => {
+  const context = useContext(ThemeContext);
+  if (!context) throw new Error("useTheme must be used within ThemeProvider");
+  return context;
+};
+
+// Theme Provider
+const ThemeProvider = ({ children }) => {
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem("auto-shop-theme");
+    return saved === "dark";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("auto-shop-theme", isDark ? "dark" : "light");
+    document.documentElement.classList.toggle("dark-mode", isDark);
+  }, [isDark]);
+
+  const toggleTheme = () => setIsDark((prev) => !prev);
+
+  return (
+    <ThemeContext.Provider value={{ isDark, toggleTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+};
+
+// Theme Toggle Button
+const ThemeToggle = () => {
+  const { isDark, toggleTheme } = useTheme();
+
+  return (
+    <button
+      onClick={toggleTheme}
+      className="theme-toggle-btn"
+      aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
+    >
+      {isDark ? "☀️" : "🌙"}
+    </button>
+  );
+};
 
 const WEBSOCKET_URL =
   process.env.REACT_APP_WEBSOCKET_URL ||
@@ -19,7 +66,7 @@ const REST_API_URL =
   process.env.REACT_APP_REST_API_URL ||
   "https://x21d6cpmv6.execute-api.us-east-1.amazonaws.com/dev";
 
-function App() {
+function AppContent() {
   const [events, setEvents] = useState([]);
   const [connectionStatus, setConnectionStatus] = useState("disconnected");
   const [currentPage, setCurrentPage] = useState("orders");
@@ -35,12 +82,10 @@ function App() {
   const websocketRef = useRef(null);
   const mountedRef = useRef(true);
 
-  // Debug: Log when events change
   useEffect(() => {
     console.log("📦 Events state changed:", events.length);
   }, [events]);
 
-  // Set page title
   useEffect(() => {
     document.title = "Auto Shop Dashboard - Real-Time Orders";
   }, []);
@@ -48,13 +93,7 @@ function App() {
   // Load historical data
   useEffect(() => {
     const loadHistoricalData = async () => {
-      if (!REST_API_URL || historicalDataLoaded) {
-        console.log("⚠️ Skipping load:", {
-          REST_API_URL: !!REST_API_URL,
-          historicalDataLoaded,
-        });
-        return;
-      }
+      if (!REST_API_URL || historicalDataLoaded) return;
 
       try {
         const dataEndpoint = `${REST_API_URL}/data`;
@@ -76,14 +115,7 @@ function App() {
             );
 
             const parsedEvents = historicalData
-              .map((rawEvent, index) => {
-                const parsed = parseWebhookData(rawEvent);
-                if (!parsed && index < 3) {
-                  // Log first 3 skipped records for debugging
-                  console.log(`Skipped record ${index}:`, rawEvent);
-                }
-                return parsed;
-              })
+              .map((rawEvent) => parseWebhookData(rawEvent))
               .filter(Boolean)
               .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
@@ -91,35 +123,8 @@ function App() {
               `✅ Successfully parsed ${parsedEvents.length} repair orders`
             );
 
-            if (parsedEvents.length === 0) {
-              console.warn(
-                "⚠️  No valid repair orders found in historical data. Check data structure."
-              );
-            }
-
             if (parsedEvents.length > 0 && mountedRef.current) {
-              console.log(
-                `🎉 Dashboard loaded with ${parsedEvents.length} orders`
-              );
-              console.log("📋 Sample order:", parsedEvents[0]);
-              console.log(
-                "📊 First order fields:",
-                Object.keys(parsedEvents[0])
-              );
-
-              // DEBUG: Log before setting
-              console.log("📦 SETTING EVENTS - ABOUT TO CALL setEvents with:", {
-                count: parsedEvents.length,
-                firstId: parsedEvents[0]?.id,
-                firstRO: parsedEvents[0]?.repairOrderNumber,
-              });
-
-              // Set events - this should trigger re-render
               setEvents(parsedEvents);
-
-              console.log("📦 setEvents CALLED");
-            } else if (parsedEvents.length === 0) {
-              console.warn("⚠️  No orders to display");
             }
           }
         }
@@ -203,7 +208,6 @@ function App() {
     }
   }, [historicalDataLoaded, connectionStatus, connectWebSocket]);
 
-  // Cleanup
   useEffect(() => {
     return () => {
       mountedRef.current = false;
@@ -213,7 +217,7 @@ function App() {
     };
   }, []);
 
-  // Filter data
+  // FIXED: Filter data with proper date handling
   const filteredData = useMemo(() => {
     console.log("🔍 FILTERING - START:", {
       totalEvents: events.length,
@@ -223,10 +227,7 @@ function App() {
       statusFilter,
     });
 
-    if (events.length === 0) {
-      console.log("⚠️ No events to filter!");
-      return [];
-    }
+    if (events.length === 0) return [];
 
     const filtered = events.filter((ro) => {
       // Search filter
@@ -239,35 +240,18 @@ function App() {
         ro.technician?.firstName?.toLowerCase().includes(search) ||
         ro.event?.toLowerCase().includes(search);
 
-      // Date filter
-      const createdDate = ro.createdDate ? new Date(ro.createdDate) : null;
+      // FIXED: Date filter - use both createdDate and timestamp
+      const eventDate = new Date(ro.createdDate || ro.timestamp);
       const matchesDateFrom =
-        !dateFrom || !createdDate || createdDate >= new Date(dateFrom);
+        !dateFrom || eventDate >= new Date(dateFrom + "T00:00:00");
       const matchesDateTo =
-        !dateTo ||
-        !createdDate ||
-        createdDate <= new Date(dateTo + "T23:59:59");
+        !dateTo || eventDate <= new Date(dateTo + "T23:59:59");
 
       // Status filter
       const matchesStatus =
         statusFilter === "all" || ro.repairOrderStatus?.name === statusFilter;
 
-      const passes =
-        matchesSearch && matchesDateFrom && matchesDateTo && matchesStatus;
-
-      if (!passes && events.length < 10) {
-        // Debug first few filtered items
-        console.log("Filtered out:", {
-          ro: ro.repairOrderNumber,
-          matchesSearch,
-          matchesDateFrom,
-          matchesDateTo,
-          matchesStatus,
-          createdDate: ro.createdDate,
-        });
-      }
-
-      return passes;
+      return matchesSearch && matchesDateFrom && matchesDateTo && matchesStatus;
     });
 
     console.log(
@@ -275,46 +259,6 @@ function App() {
     );
     return filtered;
   }, [events, searchTerm, dateFrom, dateTo, statusFilter]);
-
-  // DEBUG: Monitor state changes
-  useEffect(() => {
-    console.log("🎯 RENDER CHECK:", {
-      eventsLength: events.length,
-      filteredDataLength: filteredData.length,
-      currentPage,
-      connectionStatus,
-      historicalDataLoaded,
-    });
-
-    if (events.length > 0 && filteredData.length === 0) {
-      console.warn("⚠️ WARNING: Have events but filtered to 0!");
-      console.log("Filter settings:", {
-        searchTerm,
-        dateFrom,
-        dateTo,
-        statusFilter,
-      });
-
-      // Check first event
-      const firstEvent = events[0];
-      console.log("First event sample:", {
-        repairOrderNumber: firstEvent.repairOrderNumber,
-        customer: firstEvent.customer,
-        createdDate: firstEvent.createdDate,
-        repairOrderStatus: firstEvent.repairOrderStatus,
-      });
-    }
-  }, [
-    events,
-    filteredData,
-    currentPage,
-    connectionStatus,
-    historicalDataLoaded,
-    searchTerm,
-    dateFrom,
-    dateTo,
-    statusFilter,
-  ]);
 
   const getStatusColor = () => {
     switch (connectionStatus) {
@@ -352,20 +296,21 @@ function App() {
 
   return (
     <div className="auto-shop-dashboard">
-      {/* Header */}
       <header className="dashboard-header">
         <div className="header-row">
           <h1>🔧 Auto Shop Dashboard</h1>
-          <div className="connection-status">
-            <div
-              className="status-indicator"
-              style={{ backgroundColor: getStatusColor() }}
-            ></div>
-            <span>{getStatusText()}</span>
+          <div className="header-controls">
+            <ThemeToggle />
+            <div className="connection-status">
+              <div
+                className="status-indicator"
+                style={{ backgroundColor: getStatusColor() }}
+              ></div>
+              <span>{getStatusText()}</span>
+            </div>
           </div>
         </div>
 
-        {/* Navigation */}
         <div className="nav-tabs">
           <button
             className={currentPage === "orders" ? "active" : ""}
@@ -388,7 +333,6 @@ function App() {
         </div>
       </header>
 
-      {/* Page Content */}
       <main className="events-container">
         {currentPage === "orders" && (
           <RepairOrdersPage
@@ -419,13 +363,25 @@ function App() {
 
         {currentPage === "analytics" && (
           <JobAnalyticsPage
-            data={events}
+            data={filteredData}
             selectedCategory={selectedCategory}
             setSelectedCategory={setSelectedCategory}
+            dateFrom={dateFrom}
+            setDateFrom={setDateFrom}
+            dateTo={dateTo}
+            setDateTo={setDateTo}
           />
         )}
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 }
 

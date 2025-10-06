@@ -1,26 +1,48 @@
-// src/components/JobAnalyticsPage.js
+// src/components/JobAnalyticsPage.js - FIXED: Proper date filtering
 import React, { useState, useMemo } from "react";
 import { formatCurrency, JOB_CATEGORIES } from "../utils/dataParser";
 
-const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
+const JobAnalyticsPage = ({
+  data,
+  selectedCategory,
+  setSelectedCategory,
+  dateFrom,
+  setDateFrom,
+  dateTo,
+  setDateTo,
+}) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
   const itemsPerPage = 12;
 
-  // Filter data by date
+  // FIXED: Filter data by date using both createdDate and timestamp
   const filteredByDate = useMemo(() => {
+    console.log("🔍 JobAnalytics filtering:", {
+      totalData: data.length,
+      dateFrom,
+      dateTo,
+    });
+
     return data.filter((ro) => {
-      const createdDate = new Date(ro.createdDate);
-      const matchesDateFrom = !dateFrom || createdDate >= new Date(dateFrom);
+      // Use createdDate if available, otherwise use timestamp
+      const dateStr = ro.createdDate || ro.timestamp;
+      if (!dateStr) return true; // Include if no date
+
+      const eventDate = new Date(dateStr);
+      const matchesDateFrom =
+        !dateFrom || eventDate >= new Date(dateFrom + "T00:00:00");
       const matchesDateTo =
-        !dateTo || createdDate <= new Date(dateTo + "T23:59:59");
+        !dateTo || eventDate <= new Date(dateTo + "T23:59:59");
+
       return matchesDateFrom && matchesDateTo;
     });
   }, [data, dateFrom, dateTo]);
 
-  // Calculate analytics by category
+  console.log(
+    `✅ JobAnalytics filtered: ${filteredByDate.length} of ${data.length} records`
+  );
+
+  // FIXED: Calculate analytics by category from filtered data
   const categoryAnalytics = useMemo(() => {
     const stats = {};
 
@@ -34,6 +56,7 @@ const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
             pending: 0,
             approvedAmt: 0,
             declinedAmt: 0,
+            pendingAmt: 0,
           };
         }
 
@@ -45,6 +68,7 @@ const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
           stats[cat].declinedAmt += job.subtotal || 0;
         } else {
           stats[cat].pending++;
+          stats[cat].pendingAmt += job.subtotal || 0;
         }
       });
     });
@@ -56,6 +80,11 @@ const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
         total > 0 ? ((stats[cat].approved / total) * 100).toFixed(1) : 0;
     });
 
+    console.log(
+      "📊 Category analytics calculated:",
+      Object.keys(stats).length,
+      "categories"
+    );
     return stats;
   }, [filteredByDate]);
 
@@ -87,16 +116,27 @@ const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
 
   const totalPages = Math.ceil(filteredCategories.length / itemsPerPage);
 
-  // Calculate overall stats
+  // FIXED: Calculate overall stats from filtered data
   const overallStats = useMemo(() => {
     const stats = Object.values(categoryAnalytics);
-    return {
+    const totals = {
       totalApproved: stats.reduce((s, c) => s + c.approved, 0),
       totalDeclined: stats.reduce((s, c) => s + c.declined, 0),
       totalPending: stats.reduce((s, c) => s + c.pending, 0),
       approvedRevenue: stats.reduce((s, c) => s + c.approvedAmt, 0),
       declinedValue: stats.reduce((s, c) => s + c.declinedAmt, 0),
+      pendingValue: stats.reduce((s, c) => s + c.pendingAmt, 0),
     };
+
+    // Calculate overall close ratio
+    const totalQuoted = totals.totalApproved + totals.totalDeclined;
+    totals.overallCloseRatio =
+      totalQuoted > 0
+        ? ((totals.totalApproved / totalQuoted) * 100).toFixed(1)
+        : 0;
+
+    console.log("📈 Overall stats:", totals);
+    return totals;
   }, [categoryAnalytics]);
 
   return (
@@ -191,6 +231,12 @@ const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
             </div>
             <div className="stat-label">Declined Value</div>
           </div>
+          <div className="stat-item">
+            <div className="stat-value" style={{ color: "#17a2b8" }}>
+              {overallStats.overallCloseRatio}%
+            </div>
+            <div className="stat-label">Overall Close Ratio</div>
+          </div>
         </div>
       </div>
 
@@ -210,14 +256,15 @@ const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
             <div
               key={category}
               style={{
-                background: "white",
-                border: "2px solid #e9ecef",
+                background: "var(--card-bg)",
+                border: "2px solid var(--border-color)",
                 borderRadius: "8px",
                 padding: "1rem",
                 transition: "all 0.2s ease",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
+                e.currentTarget.style.boxShadow =
+                  "0 4px 12px var(--shadow-hover)";
                 e.currentTarget.style.transform = "translateY(-2px)";
               }}
               onMouseLeave={(e) => {
@@ -256,7 +303,12 @@ const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
                   >
                     {stats.closeRatio}%
                   </div>
-                  <div style={{ fontSize: "0.7rem", color: "#6c757d" }}>
+                  <div
+                    style={{
+                      fontSize: "0.7rem",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
                     Close Ratio
                   </div>
                 </div>
@@ -383,6 +435,15 @@ const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
                         {stats.pending}
                       </span>
                     </div>
+                    <div
+                      style={{
+                        fontSize: "0.75rem",
+                        color: "#856404",
+                        marginTop: "0.25rem",
+                      }}
+                    >
+                      Value: <strong>{formatCurrency(stats.pendingAmt)}</strong>
+                    </div>
                   </div>
                 )}
 
@@ -390,7 +451,7 @@ const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
                 <div
                   style={{
                     paddingTop: "0.75rem",
-                    borderTop: "2px solid #e9ecef",
+                    borderTop: "2px solid var(--border-color)",
                   }}
                 >
                   <div
@@ -401,8 +462,17 @@ const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
                       marginBottom: "0.25rem",
                     }}
                   >
-                    <span style={{ color: "#6c757d" }}>Total Jobs:</span>
-                    <span style={{ fontWeight: "bold" }}>{total}</span>
+                    <span style={{ color: "var(--text-secondary)" }}>
+                      Total Jobs:
+                    </span>
+                    <span
+                      style={{
+                        fontWeight: "bold",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {total}
+                    </span>
                   </div>
                   <div
                     style={{
@@ -411,9 +481,18 @@ const JobAnalyticsPage = ({ data, selectedCategory, setSelectedCategory }) => {
                       fontSize: "0.85rem",
                     }}
                   >
-                    <span style={{ color: "#6c757d" }}>Total Value:</span>
-                    <span style={{ fontWeight: "bold" }}>
-                      {formatCurrency(stats.approvedAmt + stats.declinedAmt)}
+                    <span style={{ color: "var(--text-secondary)" }}>
+                      Total Value:
+                    </span>
+                    <span
+                      style={{
+                        fontWeight: "bold",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {formatCurrency(
+                        stats.approvedAmt + stats.declinedAmt + stats.pendingAmt
+                      )}
                     </span>
                   </div>
                 </div>

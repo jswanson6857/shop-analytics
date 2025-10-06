@@ -1,4 +1,4 @@
-// src/components/RepairOrdersPage.js
+// src/components/RepairOrdersPage.js - FIXED: Shows tax-inclusive totals
 import React, { useState, useMemo, useEffect } from "react";
 import {
   formatCurrency,
@@ -23,7 +23,6 @@ const RepairOrdersPage = ({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
-  // Debug logging
   useEffect(() => {
     console.log("RepairOrdersPage received data:", {
       count: data?.length,
@@ -32,17 +31,25 @@ const RepairOrdersPage = ({
     });
   }, [data]);
 
-  // Calculate statistics
+  // FIXED: Calculate statistics including tax
   const stats = useMemo(() => {
     const today = new Date().toISOString().split("T")[0];
-    const todayEvents = data.filter((e) => e.timestamp?.startsWith(today));
+    const todayEvents = data.filter((e) => {
+      const eventDate = new Date(e.createdDate || e.timestamp)
+        .toISOString()
+        .split("T")[0];
+      return eventDate === today;
+    });
     const repairOrders = data.filter((e) => e.repairOrderNumber);
     const highPriority = data.filter((e) => e.priority === "high");
 
+    // FIXED: Total revenue includes tax
     const totalRevenue = repairOrders.reduce(
-      (sum, ro) => sum + (ro.totalSales || 0),
+      (sum, ro) => sum + ((ro.totalSales || 0) + (ro.taxes || 0)),
       0
     );
+
+    // FIXED: Pending balance includes tax
     const pendingBalance = repairOrders.reduce(
       (sum, ro) => sum + (ro.balanceDue || 0),
       0
@@ -161,7 +168,7 @@ const RepairOrdersPage = ({
             <div className="stat-value">
               {formatCurrency(stats.totalRevenue)}
             </div>
-            <div className="stat-label">Total Revenue</div>
+            <div className="stat-label">Total Revenue (incl. tax)</div>
           </div>
           <div className="stat-item">
             <div className="stat-value">
@@ -251,7 +258,10 @@ const OrderCard = ({
   expandedJobs,
   toggleJob,
 }) => {
+  // FIXED: Balance due already calculated correctly in parser
   const balanceDue = order.balanceDue || 0;
+  const totalWithTax =
+    order.totalWithTax || (order.totalSales || 0) + (order.taxes || 0);
 
   return (
     <div
@@ -276,7 +286,7 @@ const OrderCard = ({
               🔧 Tech: {order.technician?.firstName}{" "}
               {order.technician?.lastName}
             </span>
-            <span>🕐 {formatDate(order.timestamp)}</span>
+            <span>🕐 {formatDate(order.createdDate || order.timestamp)}</span>
           </div>
         </div>
         <div className="status-badges">
@@ -296,14 +306,14 @@ const OrderCard = ({
               balanceDue > 0 ? "amount-due" : "amount-paid"
             }`}
           >
-            {formatCurrency(balanceDue > 0 ? balanceDue : order.totalSales)}
+            {formatCurrency(balanceDue > 0 ? balanceDue : totalWithTax)}
           </div>
           <div className="amount-label">
             {balanceDue > 0
-              ? "Balance Due"
+              ? "Balance Due (incl. tax)"
               : order.amountPaid > 0
               ? "Paid"
-              : "Total Sales"}
+              : "Total (incl. tax)"}
           </div>
         </div>
       </div>
@@ -311,7 +321,7 @@ const OrderCard = ({
       {/* Expanded Details */}
       {isExpanded && (
         <div className="event-details">
-          {/* Financial Summary */}
+          {/* Financial Summary - FIXED: Show tax properly */}
           <div className="detail-group">
             <div className="detail-row">
               <span className="detail-label">Labor Sales:</span>
@@ -332,15 +342,33 @@ const OrderCard = ({
               </span>
             </div>
             <div className="detail-row">
+              <span className="detail-label">Subtotal:</span>
+              <span className="detail-value">
+                {formatCurrency(order.totalSales)}
+              </span>
+            </div>
+            <div className="detail-row">
               <span className="detail-label">Taxes:</span>
               <span className="detail-value">
                 {formatCurrency(order.taxes)}
               </span>
             </div>
-            <div className="detail-row">
-              <span className="detail-label">Total Sales:</span>
-              <span className="detail-value">
-                {formatCurrency(order.totalSales)}
+            <div
+              className="detail-row"
+              style={{
+                borderTop: "2px solid var(--border-color)",
+                paddingTop: "0.5rem",
+                marginTop: "0.5rem",
+              }}
+            >
+              <span className="detail-label" style={{ fontWeight: 700 }}>
+                Total (with tax):
+              </span>
+              <span
+                className="detail-value"
+                style={{ fontWeight: 700, fontSize: "1.1rem" }}
+              >
+                {formatCurrency(totalWithTax)}
               </span>
             </div>
             <div className="detail-row">
@@ -349,12 +377,22 @@ const OrderCard = ({
                 {formatCurrency(order.amountPaid)}
               </span>
             </div>
-            <div className="detail-row">
-              <span className="detail-label">Balance Due:</span>
+            <div
+              className="detail-row"
+              style={{
+                borderTop: "2px solid var(--border-color)",
+                paddingTop: "0.5rem",
+                marginTop: "0.5rem",
+              }}
+            >
+              <span className="detail-label" style={{ fontWeight: 700 }}>
+                Balance Due:
+              </span>
               <span
                 className={`detail-value ${
                   balanceDue > 0 ? "amount-due" : "amount-paid"
                 }`}
+                style={{ fontWeight: 700, fontSize: "1.1rem" }}
               >
                 {formatCurrency(balanceDue)}
               </span>
@@ -466,7 +504,7 @@ const OrderCard = ({
               style={{
                 fontWeight: 600,
                 marginBottom: "1rem",
-                color: "#495057",
+                color: "var(--text-primary)",
               }}
             >
               📋 Jobs Breakdown ({order.jobs.length}):
@@ -547,7 +585,7 @@ const OrderCard = ({
                       style={{
                         marginTop: "0.75rem",
                         paddingTop: "0.75rem",
-                        borderTop: "1px solid #e9ecef",
+                        borderTop: "1px solid var(--border-color)",
                       }}
                     >
                       <div className="job-financials">
@@ -572,7 +610,7 @@ const OrderCard = ({
                               key={l.id}
                               style={{
                                 fontSize: "0.75rem",
-                                color: "#666",
+                                color: "var(--text-secondary)",
                                 marginLeft: "1rem",
                               }}
                             >
@@ -609,7 +647,7 @@ const OrderCard = ({
                               key={p.id}
                               style={{
                                 fontSize: "0.75rem",
-                                color: "#666",
+                                color: "var(--text-secondary)",
                                 marginLeft: "1rem",
                               }}
                             >

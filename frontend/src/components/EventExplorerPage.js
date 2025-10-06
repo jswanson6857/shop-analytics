@@ -1,4 +1,4 @@
-// src/components/EventExplorerPage.js
+// src/components/EventExplorerPage.js - With Dark Mode Support
 import React, { useState, useMemo } from "react";
 import { formatCurrency, formatDate } from "../utils/dataParser";
 
@@ -225,8 +225,8 @@ const EventExplorerPage = ({
                   <div
                     style={{
                       padding: "1rem",
-                      background: "#f8f9fa",
-                      borderTop: "1px solid #dee2e6",
+                      background: "var(--bg-tertiary)",
+                      borderTop: "1px solid var(--border-color)",
                     }}
                   >
                     <div
@@ -319,7 +319,7 @@ const EventExplorerPage = ({
                         <h4
                           style={{
                             fontWeight: 600,
-                            color: "#6c757d",
+                            color: "var(--text-secondary)",
                             marginBottom: "0.75rem",
                             fontSize: "0.9rem",
                           }}
@@ -337,25 +337,34 @@ const EventExplorerPage = ({
                             <div
                               key={idx}
                               style={{
-                                background: "#f8f9fa",
-                                borderLeft: "4px solid #6c757d",
+                                background: "var(--bg-tertiary)",
+                                borderLeft: "4px solid var(--border-color)",
                                 padding: "0.5rem",
                                 borderRadius: "4px",
                                 fontSize: "0.75rem",
                               }}
                             >
                               <div
-                                style={{ fontWeight: 600, color: "#495057" }}
+                                style={{
+                                  fontWeight: 600,
+                                  color: "var(--text-primary)",
+                                }}
                               >
                                 {field.name}
                               </div>
                               <div
-                                style={{ color: "#6c757d", fontSize: "0.7rem" }}
+                                style={{
+                                  color: "var(--text-secondary)",
+                                  fontSize: "0.7rem",
+                                }}
                               >
                                 {field.description}
                               </div>
                               <div
-                                style={{ color: "#999", marginTop: "0.25rem" }}
+                                style={{
+                                  color: "var(--text-tertiary)",
+                                  marginTop: "0.25rem",
+                                }}
                               >
                                 NULL or not provided
                               </div>
@@ -371,7 +380,7 @@ const EventExplorerPage = ({
                         style={{
                           marginTop: "1rem",
                           paddingTop: "1rem",
-                          borderTop: "1px solid #dee2e6",
+                          borderTop: "1px solid var(--border-color)",
                         }}
                       >
                         <h4
@@ -379,6 +388,7 @@ const EventExplorerPage = ({
                             fontWeight: 600,
                             marginBottom: "0.5rem",
                             fontSize: "0.9rem",
+                            color: "var(--text-primary)",
                           }}
                         >
                           Jobs from this event:

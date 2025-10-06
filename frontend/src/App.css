@@ -1,15 +1,52 @@
-/* src/App.css - Complete Auto Shop Dashboard Styles */
+/* src/App.css - Complete Auto Shop Dashboard with Dark Mode */
 
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Light Mode (Default) Variables */
+:root {
+  --bg-primary: #f8f9fa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f8f9fa;
+  --text-primary: #333;
+  --text-secondary: #666;
+  --text-tertiary: #999;
+  --border-color: #dee2e6;
+  --shadow: rgba(0,0,0,0.1);
+  --shadow-hover: rgba(0,0,0,0.15);
+  --header-gradient-start: #1e3c72;
+  --header-gradient-end: #2a5298;
+  --card-bg: #ffffff;
+  --input-bg: #ffffff;
+  --badge-bg: #e9ecef;
+}
+
+/* Dark Mode Variables */
+.dark-mode {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-tertiary: #0f1729;
+  --text-primary: #e0e0e0;
+  --text-secondary: #b0b0b0;
+  --text-tertiary: #808080;
+  --border-color: #2a3f5f;
+  --shadow: rgba(0,0,0,0.3);
+  --shadow-hover: rgba(0,0,0,0.5);
+  --header-gradient-start: #0f2027;
+  --header-gradient-end: #2c5364;
+  --card-bg: #16213e;
+  --input-bg: #1a2942;
+  --badge-bg: #2a3f5f;
 }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #f8f9fa;
-  color: #333;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-size: 14px;
 }
 
@@ -19,13 +56,13 @@ body {
 
 /* Header */
 .dashboard-header {
-  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  background: linear-gradient(135deg, var(--header-gradient-start) 0%, var(--header-gradient-end) 100%);
   color: white;
   padding: 1.5rem;
   position: sticky;
   top: 0;
   z-index: 100;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 8px var(--shadow);
 }
 
 .header-row {
@@ -39,6 +76,34 @@ body {
   font-size: 1.8rem;
   font-weight: 700;
   margin: 0;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* Theme Toggle Button */
+.theme-toggle-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 25px;
+  font-size: 1.2rem;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.theme-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 
 .connection-status {
@@ -89,16 +154,16 @@ body {
 
 .nav-tabs button.active {
   background: white;
-  color: #1e3c72;
+  color: var(--header-gradient-start);
 }
 
 /* Filters Section */
 .filters-section {
-  background: white;
+  background: var(--card-bg);
   padding: 1.5rem;
   border-radius: 8px;
   margin-bottom: 1.5rem;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px var(--shadow);
 }
 
 .filters-row {
@@ -116,9 +181,18 @@ body {
 .search-input {
   width: 100%;
   padding: 0.75rem 1rem 0.75rem 2.5rem;
-  border: 1px solid #dee2e6;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   font-size: 1rem;
+  background: var(--input-bg);
+  color: var(--text-primary);
+  /* FIXED: Ensure input is always visible and functional */
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  -webkit-appearance: none;
+  -moz-appearance: textfield;
+  z-index: 1;
 }
 
 .search-input:focus {
@@ -127,26 +201,52 @@ body {
   box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
 }
 
+/* FIXED: Ensure placeholder is visible in both modes */
+.search-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+.dark-mode .search-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
 .search-icon {
   position: absolute;
   left: 0.75rem;
   top: 50%;
   transform: translateY(-50%);
-  color: #6c757d;
+  color: var(--text-secondary);
 }
 
 .filter-select {
   padding: 0.75rem;
-  border: 1px solid #dee2e6;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  background: white;
+  background: var(--input-bg);
+  color: var(--text-primary);
   font-size: 0.9rem;
+  /* FIXED: Ensure select is always visible and functional */
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  z-index: 1;
+  cursor: pointer;
 }
 
 .filter-select:focus {
   outline: none;
   border-color: #007bff;
   box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+}
+
+/* Dark mode specific for select dropdowns */
+.dark-mode .filter-select option {
+  background: var(--input-bg);
+  color: var(--text-primary);
 }
 
 /* Stats Bar */
@@ -184,14 +284,14 @@ body {
   align-items: center;
   margin-top: 1.5rem;
   padding: 1rem;
-  background: white;
+  background: var(--card-bg);
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px var(--shadow);
 }
 
 .page-info {
   font-weight: 600;
-  color: #495057;
+  color: var(--text-primary);
 }
 
 .page-buttons {
@@ -201,8 +301,9 @@ body {
 
 .page-btn {
   padding: 0.5rem 1rem;
-  border: 1px solid #dee2e6;
-  background: white;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  color: var(--text-primary);
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.9rem;
@@ -211,7 +312,7 @@ body {
 }
 
 .page-btn:hover:not(:disabled) {
-  background: #f8f9fa;
+  background: var(--bg-tertiary);
   border-color: #007bff;
   color: #007bff;
 }
@@ -228,16 +329,16 @@ body {
 
 /* Event Cards */
 .event-card {
-  background: white;
+  background: var(--card-bg);
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px var(--shadow);
   border-left: 4px solid #007bff;
   transition: all 0.2s ease;
   overflow: hidden;
 }
 
 .event-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 12px var(--shadow-hover);
   transform: translateY(-1px);
 }
 
@@ -265,7 +366,7 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: #f8f9fa;
+  background: var(--bg-tertiary);
 }
 
 .event-title {
@@ -275,12 +376,12 @@ body {
 .event-title h4 {
   font-size: 1.1rem;
   margin: 0 0 0.25rem 0;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .event-subtitle {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-secondary);
   display: flex;
   gap: 1rem;
   flex-wrap: wrap;
@@ -310,6 +411,10 @@ body {
   color: white;
 }
 
+.dark-mode .badge.custom {
+  background: #1976d2;
+}
+
 .event-amount {
   text-align: right;
   font-weight: 600;
@@ -320,17 +425,29 @@ body {
   color: #007bff;
 }
 
+.dark-mode .amount-value {
+  color: #64b5f6;
+}
+
 .amount-label {
   font-size: 0.8rem;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .amount-due {
   color: #dc3545;
 }
 
+.dark-mode .amount-due {
+  color: #ef5350;
+}
+
 .amount-paid {
   color: #28a745;
+}
+
+.dark-mode .amount-paid {
+  color: #66bb6a;
 }
 
 .event-details {
@@ -338,8 +455,8 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 1rem;
   padding: 1rem;
-  border-top: 1px solid #f8f9fa;
-  background: #f8f9fa;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
 }
 
 .detail-group {
@@ -355,13 +472,13 @@ body {
 }
 
 .detail-label {
-  color: #666;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .detail-value {
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .jobs-summary {
@@ -381,7 +498,7 @@ body {
   font-weight: 700;
   padding: 0.2rem 0.4rem;
   border-radius: 4px;
-  background: #f8f9fa;
+  background: var(--bg-tertiary);
   min-width: 1.5rem;
   text-align: center;
 }
@@ -391,14 +508,29 @@ body {
   color: #155724;
 }
 
+.dark-mode .job-count.authorized {
+  background: #1b5e20;
+  color: #a5d6a7;
+}
+
 .job-count.pending {
   background: #fff3cd;
   color: #856404;
 }
 
+.dark-mode .job-count.pending {
+  background: #f57f17;
+  color: #fff59d;
+}
+
 .job-count.declined {
   background: #f8d7da;
   color: #721c24;
+}
+
+.dark-mode .job-count.declined {
+  background: #c62828;
+  color: #ef9a9a;
 }
 
 .expandable-details {
@@ -413,28 +545,40 @@ body {
 
 .job-details {
   padding: 1rem;
-  background: #f8f9fa;
-  border-top: 1px solid #dee2e6;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-color);
 }
 
 .job-item {
-  background: white;
+  background: var(--card-bg);
   padding: 0.75rem;
   margin-bottom: 0.5rem;
   border-radius: 4px;
-  border-left: 3px solid #dee2e6;
+  border-left: 3px solid var(--border-color);
 }
 
 .job-item.authorized {
   border-left-color: #28a745;
 }
 
+.dark-mode .job-item.authorized {
+  border-left-color: #66bb6a;
+}
+
 .job-item.pending {
   border-left-color: #ffc107;
 }
 
+.dark-mode .job-item.pending {
+  border-left-color: #ffb300;
+}
+
 .job-item.declined {
   border-left-color: #dc3545;
+}
+
+.dark-mode .job-item.declined {
+  border-left-color: #ef5350;
 }
 
 .job-header {
@@ -446,33 +590,33 @@ body {
 
 .job-name {
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .job-financials {
   display: flex;
   gap: 1rem;
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-secondary);
   flex-wrap: wrap;
 }
 
 .no-data {
   text-align: center;
   padding: 4rem 2rem;
-  color: #666;
-  background: white;
+  color: var(--text-secondary);
+  background: var(--card-bg);
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px var(--shadow);
 }
 
 .no-data h2 {
   margin-bottom: 1rem;
-  color: #495057;
+  color: var(--text-primary);
 }
 
 .no-data p {
-  color: #6c757d;
+  color: var(--text-secondary);
   font-size: 1.1rem;
 }
 
@@ -507,6 +651,10 @@ body {
   .header-row h1 {
     text-align: center;
     font-size: 1.5rem;
+  }
+
+  .header-controls {
+    justify-content: center;
   }
 
   .connection-status {
