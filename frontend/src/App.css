@@ -25,7 +25,7 @@
   --badge-bg: #e9ecef;
 }
 
-/* Dark Mode Variables */
+/* Dark Mode Variables - UPDATED WITH SOLID DEEP BLUE */
 .dark-mode {
   --bg-primary: #1a1a2e;
   --bg-secondary: #16213e;
@@ -36,8 +36,8 @@
   --border-color: #2a3f5f;
   --shadow: rgba(0,0,0,0.3);
   --shadow-hover: rgba(0,0,0,0.5);
-  --header-gradient-start: #0f2027;
-  --header-gradient-end: #2c5364;
+  --header-gradient-start: #1e3a8a;
+  --header-gradient-end: #1e3a8a;
   --card-bg: #16213e;
   --input-bg: #1a2942;
   --badge-bg: #2a3f5f;
@@ -186,7 +186,6 @@ body {
   font-size: 1rem;
   background: var(--input-bg);
   color: var(--text-primary);
-  /* FIXED: Ensure input is always visible and functional */
   opacity: 1 !important;
   visibility: visible !important;
   pointer-events: auto !important;
@@ -201,15 +200,20 @@ body {
   box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
 }
 
-/* FIXED: Ensure placeholder is visible in both modes */
 .search-input::placeholder {
   color: var(--text-secondary);
   opacity: 0.7;
 }
 
+/* CRITICAL FIX: Dark mode input text must be bright white */
+.dark-mode .search-input {
+  color: #ffffff !important;
+  background: #1a2942 !important;
+}
+
 .dark-mode .search-input::placeholder {
-  color: var(--text-secondary);
-  opacity: 0.8;
+  color: #b0b0b0;
+  opacity: 0.9;
 }
 
 .search-icon {
@@ -227,7 +231,6 @@ body {
   background: var(--input-bg);
   color: var(--text-primary);
   font-size: 0.9rem;
-  /* FIXED: Ensure select is always visible and functional */
   opacity: 1 !important;
   visibility: visible !important;
   pointer-events: auto !important;
@@ -243,10 +246,70 @@ body {
   box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
 }
 
-/* Dark mode specific for select dropdowns */
+/* CRITICAL FIX: Dark mode select and date inputs must be bright white */
+.dark-mode .filter-select {
+  color: #ffffff !important;
+  background: #1a2942 !important;
+}
+
 .dark-mode .filter-select option {
-  background: var(--input-bg);
-  color: var(--text-primary);
+  background: #1a2942;
+  color: #ffffff;
+}
+
+/* Filter Action Buttons - NEW */
+.filter-action-btn {
+  padding: 0.75rem 1.25rem;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.filter-action-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--shadow-hover);
+}
+
+.filter-action-btn:active {
+  transform: translateY(0);
+}
+
+.today-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: #667eea;
+}
+
+.today-btn:hover {
+  background: linear-gradient(135deg, #5568d3 0%, #63408b 100%);
+}
+
+.clear-btn {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+  border-color: #f5576c;
+}
+
+.clear-btn:hover {
+  background: linear-gradient(135deg, #e082ea 0%, #e4465b 100%);
+}
+
+.dark-mode .today-btn {
+  background: linear-gradient(135deg, #5568d3 0%, #63408b 100%);
+  border-color: #5568d3;
+}
+
+.dark-mode .clear-btn {
+  background: linear-gradient(135deg, #e082ea 0%, #e4465b 100%);
+  border-color: #e4465b;
 }
 
 /* Stats Bar */

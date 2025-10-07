@@ -1,4 +1,4 @@
-// src/components/EventExplorerPage.js - With Dark Mode + Auto-Expand Support
+// src/components/EventExplorerPage.js - With Dark Mode + Auto-Expand Support + Filter Buttons
 import React, { useState, useMemo, useEffect } from "react";
 import { formatCurrency, formatDate } from "../utils/dataParser";
 
@@ -16,6 +16,28 @@ const EventExplorerPage = ({
   const [expandedEvents, setExpandedEvents] = useState(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  // Helper function to get today's date in YYYY-MM-DD format
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split("T")[0];
+  };
+
+  // Apply Today filter
+  const applyTodayFilter = () => {
+    const today = getTodayDate();
+    setDateFrom(today);
+    setDateTo(today);
+    setCurrentPage(1);
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSearchTerm("");
+    setDateFrom("");
+    setDateTo("");
+    setCurrentPage(1);
+  };
 
   // Auto-expand when navigated from JobAnalytics
   useEffect(() => {
@@ -125,6 +147,22 @@ const EventExplorerPage = ({
               setCurrentPage(1);
             }}
           />
+
+          <button
+            className="filter-action-btn today-btn"
+            onClick={applyTodayFilter}
+            title="Show only today's records"
+          >
+            📅 Today
+          </button>
+
+          <button
+            className="filter-action-btn clear-btn"
+            onClick={clearFilters}
+            title="Clear all filters"
+          >
+            ✖ Clear
+          </button>
         </div>
       </div>
 

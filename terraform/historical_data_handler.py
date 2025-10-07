@@ -1,4 +1,4 @@
-# terraform/historical_data_handler.py - FIXED for your data structure
+# terraform/historical_data_handler.py - FIXED to load ALL data with pagination
 import json
 import logging
 import os
@@ -35,7 +35,7 @@ def get_cors_headers():
 def lambda_handler(event, context):
     """
     AWS Lambda function to serve historical webhook data for initial page load
-    FIXED to handle your actual DynamoDB structure
+    FIXED to handle your actual DynamoDB structure and load ALL data
     """
     
     try:
@@ -58,36 +58,53 @@ def lambda_handler(event, context):
         # Get DynamoDB table
         table = dynamodb.Table(table_name)
         
-        # Parse query parameters
+        # Parse query parameters - FIXED to load ALL data
         query_params = event.get('queryStringParameters') or {}
-        limit = min(int(query_params.get('limit', 50)), 100)  # Max 100 items, default 50
-        hours_back = min(int(query_params.get('hours', 24)), 168)  # Max 7 days, default 24 hours
+        limit = min(int(query_params.get('limit', 10000)), 10000)  # Max 10k items, default 10k
+        hours_back = min(int(query_params.get('hours', 168)), 8760)  # Max 365 days, default 7 days
         
         # Calculate time range
         end_time = datetime.utcnow()
         start_time = end_time - timedelta(hours=hours_back)
         
-        logger.info(f"Fetching last {hours_back} hours of data, limit {limit} items")
+        logger.info(f"Fetching ALL data from last {hours_back} hours, limit {limit} items")
         
-        # Query DynamoDB for recent data
+        # Query DynamoDB for recent data - FIXED: Paginate through ALL results
         try:
-            response = table.scan(
-                FilterExpression='#ts >= :start_time',
-                ExpressionAttributeNames={
-                    '#ts': 'timestamp'
-                },
-                ExpressionAttributeValues={
-                    ':start_time': start_time.isoformat()
-                },
-                Limit=limit
-            )
+            items = []
+            last_evaluated_key = None
             
-            items = response.get('Items', [])
+            # Paginate through ALL results
+            while True:
+                scan_kwargs = {
+                    'FilterExpression': '#ts >= :start_time',
+                    'ExpressionAttributeNames': {
+                        '#ts': 'timestamp'
+                    },
+                    'ExpressionAttributeValues': {
+                        ':start_time': start_time.isoformat()
+                    }
+                }
+                
+                if last_evaluated_key:
+                    scan_kwargs['ExclusiveStartKey'] = last_evaluated_key
+                
+                response = table.scan(**scan_kwargs)
+                items.extend(response.get('Items', []))
+                
+                last_evaluated_key = response.get('LastEvaluatedKey')
+                
+                # Break if no more pages or hit limit
+                if not last_evaluated_key or len(items) >= limit:
+                    break
+            
+            # Trim to limit if needed
+            items = items[:limit]
             
             # Sort by timestamp descending (newest first)
             items.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
             
-            logger.info(f"Found {len(items)} historical items")
+            logger.info(f"Found {len(items)} historical items (paginated through all results)")
             
             # Transform DynamoDB items to the format your frontend expects
             historical_events = []

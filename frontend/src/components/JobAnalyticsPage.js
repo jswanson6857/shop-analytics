@@ -1,4 +1,4 @@
-// src/components/JobAnalyticsPage.js - COMPLETE: Clickable categories with modal
+// src/components/JobAnalyticsPage.js - COMPLETE: Clickable categories with modal + Approved vs Declined + Filter Buttons
 import React, { useState, useMemo } from "react";
 import {
   formatCurrency,
@@ -23,25 +23,48 @@ const JobAnalyticsPage = ({
   const [modalData, setModalData] = useState(null);
   const itemsPerPage = 12;
 
-  // Calculate analytics by category (ONLY APPROVED JOBS)
+  // Helper function to get today's date in YYYY-MM-DD format
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split("T")[0];
+  };
+
+  // Apply Today filter
+  const applyTodayFilter = () => {
+    const today = getTodayDate();
+    setDateFrom(today);
+    setDateTo(today);
+    setCurrentPage(1);
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSearchTerm("");
+    setDateFrom("");
+    setDateTo("");
+    setSelectedCategory("all");
+    setCurrentPage(1);
+  };
+
+  // Calculate analytics by category (ALL JOBS - approved and declined)
   const categoryAnalytics = useMemo(() => {
     const stats = {};
 
     data.forEach((ro) => {
-      // ONLY count approved jobs
-      const approvedJobs = (ro.jobs || []).filter((j) => j.authorized === true);
+      const allJobs = ro.jobs || [];
 
-      approvedJobs.forEach((job) => {
+      allJobs.forEach((job) => {
         const cat = job.category || "OTHER";
         if (!stats[cat]) {
           stats[cat] = {
             approved: 0,
+            declined: 0,
             approvedAmt: 0,
-            jobs: [], // Store approved jobs with RO context
+            approvedJobs: [],
+            declinedJobs: [],
           };
         }
 
-        // Calculate tax for this job
         const jobTax = calculateJobTax(job, ro.totalSales, ro.taxes);
         const jobTotal = job.subtotal + jobTax;
 
@@ -57,9 +80,16 @@ const JobAnalyticsPage = ({
           totalWithTax: jobTotal,
         };
 
-        stats[cat].jobs.push(jobDetail);
-        stats[cat].approved++;
-        stats[cat].approvedAmt += jobTotal; // Include tax in total
+        if (job.authorized === true) {
+          stats[cat].approvedJobs.push(jobDetail);
+          stats[cat].approved++;
+          stats[cat].approvedAmt += jobTotal;
+        }
+
+        if (job.authorized === false) {
+          stats[cat].declinedJobs.push(jobDetail);
+          stats[cat].declined++;
+        }
       });
     });
 
@@ -103,7 +133,11 @@ const JobAnalyticsPage = ({
 
   // Handle category click
   const handleCategoryClick = (category, stats) => {
-    setModalData({ category, jobs: stats.jobs });
+    const allJobs = [
+      ...stats.approvedJobs.map((j) => ({ ...j, status: "approved" })),
+      ...stats.declinedJobs.map((j) => ({ ...j, status: "declined" })),
+    ];
+    setModalData({ category, jobs: allJobs, stats });
     setShowModal(true);
   };
 
@@ -179,6 +213,22 @@ const JobAnalyticsPage = ({
               setCurrentPage(1);
             }}
           />
+
+          <button
+            className="filter-action-btn today-btn"
+            onClick={applyTodayFilter}
+            title="Show only today's records"
+          >
+            📅 Today
+          </button>
+
+          <button
+            className="filter-action-btn clear-btn"
+            onClick={clearFilters}
+            title="Clear all filters"
+          >
+            ✖ Clear
+          </button>
         </div>
 
         {/* Overall Summary Stats */}
@@ -318,6 +368,82 @@ const JobAnalyticsPage = ({
                   </div>
                 </div>
 
+                {/* NEW: Approved vs Declined Stats */}
+                <div
+                  style={{
+                    background: "var(--bg-tertiary)",
+                    padding: "0.75rem",
+                    borderRadius: "6px",
+                    border: "1px solid var(--border-color)",
+                  }}
+                >
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        fontSize: "0.85rem",
+                        marginBottom: "0.25rem",
+                      }}
+                    >
+                      <span style={{ color: "#28a745", fontWeight: 600 }}>
+                        ✓ Approved: {stats.approved}
+                      </span>
+                      <span style={{ color: "#dc3545", fontWeight: 600 }}>
+                        ✗ Declined: {stats.declined}
+                      </span>
+                    </div>
+
+                    {/* Approval Rate */}
+                    {stats.approved + stats.declined > 0 && (
+                      <div style={{ marginTop: "0.5rem" }}>
+                        <div
+                          style={{
+                            fontSize: "0.75rem",
+                            color: "var(--text-secondary)",
+                            marginBottom: "0.25rem",
+                            textAlign: "center",
+                          }}
+                        >
+                          Approval Rate:{" "}
+                          <strong style={{ color: "var(--text-primary)" }}>
+                            {(
+                              (stats.approved /
+                                (stats.approved + stats.declined)) *
+                              100
+                            ).toFixed(1)}
+                            %
+                          </strong>
+                        </div>
+
+                        {/* Visual bar */}
+                        <div
+                          style={{
+                            height: "8px",
+                            background: "#dc3545",
+                            borderRadius: "4px",
+                            overflow: "hidden",
+                            position: "relative",
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: "100%",
+                              background: "#28a745",
+                              width: `${(
+                                (stats.approved /
+                                  (stats.approved + stats.declined)) *
+                                100
+                              ).toFixed(1)}%`,
+                              transition: "width 0.3s ease",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Click to view */}
                 <div
                   style={{
@@ -369,7 +495,7 @@ const JobAnalyticsPage = ({
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>
-                {modalData.category} - Approved Jobs ({modalData.jobs.length})
+                {modalData.category} - All Jobs ({modalData.jobs.length})
               </h2>
               <button
                 className="modal-close"
@@ -377,6 +503,81 @@ const JobAnalyticsPage = ({
               >
                 ✕
               </button>
+            </div>
+
+            {/* Stats Summary */}
+            <div
+              style={{
+                padding: "1rem",
+                background: "var(--bg-tertiary)",
+                borderBottom: "2px solid var(--border-color)",
+                display: "flex",
+                justifyContent: "space-around",
+                gap: "1rem",
+              }}
+            >
+              <div style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    fontSize: "1.5rem",
+                    fontWeight: "bold",
+                    color: "#28a745",
+                  }}
+                >
+                  {modalData.stats.approved}
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  ✓ Approved
+                </div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    fontSize: "1.5rem",
+                    fontWeight: "bold",
+                    color: "#dc3545",
+                  }}
+                >
+                  {modalData.stats.declined}
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  ✗ Declined
+                </div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    fontSize: "1.5rem",
+                    fontWeight: "bold",
+                    color: "#007bff",
+                  }}
+                >
+                  {(
+                    (modalData.stats.approved /
+                      (modalData.stats.approved + modalData.stats.declined)) *
+                    100
+                  ).toFixed(1)}
+                  %
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Approval Rate
+                </div>
+              </div>
             </div>
 
             <div className="modal-body">
@@ -389,6 +590,11 @@ const JobAnalyticsPage = ({
                     key={job.id}
                     className="job-modal-item"
                     onClick={() => handleJobClick(job.repairOrderNumber)}
+                    style={{
+                      borderLeft: `4px solid ${
+                        job.status === "approved" ? "#28a745" : "#dc3545"
+                      }`,
+                    }}
                   >
                     <div className="job-modal-header">
                       <div>
@@ -399,8 +605,14 @@ const JobAnalyticsPage = ({
                             ` ${job.customer.firstName} ${job.customer.lastName}`}
                         </div>
                       </div>
-                      <div className="job-modal-amount">
-                        {formatCurrency(job.totalWithTax)}
+                      <div
+                        className="job-modal-amount"
+                        style={{
+                          color:
+                            job.status === "approved" ? "#28a745" : "#dc3545",
+                        }}
+                      >
+                        {formatCurrency(job.totalWithTax || job.subtotal)}
                       </div>
                     </div>
 
@@ -411,15 +623,19 @@ const JobAnalyticsPage = ({
                           {job.technician.lastName}
                         </span>
                       )}
-                      <span className="job-modal-badge approved">
-                        ✓ Approved
+                      <span className={`job-modal-badge ${job.status}`}>
+                        {job.status === "approved"
+                          ? "✓ Approved"
+                          : "✗ Declined"}
                       </span>
                       <span className="job-modal-badge">
                         Subtotal: {formatCurrency(job.subtotal)}
                       </span>
-                      <span className="job-modal-badge">
-                        Tax: {formatCurrency(job.calculatedTax)}
-                      </span>
+                      {job.calculatedTax > 0 && (
+                        <span className="job-modal-badge">
+                          Tax: {formatCurrency(job.calculatedTax)}
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -534,7 +750,6 @@ const JobAnalyticsPage = ({
         .job-modal-amount {
           font-size: 1.5rem;
           font-weight: 700;
-          color: #28a745;
         }
 
         .job-modal-details {
@@ -557,6 +772,12 @@ const JobAnalyticsPage = ({
           background: #d4edda;
           color: #155724;
           border-color: #28a745;
+        }
+
+        .job-modal-badge.declined {
+          background: #f8d7da;
+          color: #721c24;
+          border-color: #dc3545;
         }
 
         .filter-tooltip {

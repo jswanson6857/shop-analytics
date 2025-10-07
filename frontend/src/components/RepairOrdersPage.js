@@ -1,4 +1,4 @@
-// src/components/RepairOrdersPage.js - FIXED: Shows job-level tax + Sales terminology
+// src/components/RepairOrdersPage.js - FIXED: Shows job-level tax + Sales terminology + Filter Buttons
 import React, { useState, useMemo, useEffect } from "react";
 import {
   formatCurrency,
@@ -22,6 +22,29 @@ const RepairOrdersPage = ({
   const [expandedJobs, setExpandedJobs] = useState(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
+
+  // Helper function to get today's date in YYYY-MM-DD format
+  const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split("T")[0];
+  };
+
+  // Apply Today filter
+  const applyTodayFilter = () => {
+    const today = getTodayDate();
+    setDateFrom(today);
+    setDateTo(today);
+    setCurrentPage(1);
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSearchTerm("");
+    setDateFrom("");
+    setDateTo("");
+    setStatusFilter("all");
+    setCurrentPage(1);
+  };
 
   useEffect(() => {
     console.log("RepairOrdersPage received data:", {
@@ -152,6 +175,22 @@ const RepairOrdersPage = ({
             <option value="Arrived">Arrived</option>
             <option value="Quoting">Quoting</option>
           </select>
+
+          <button
+            className="filter-action-btn today-btn"
+            onClick={applyTodayFilter}
+            title="Show only today's records"
+          >
+            📅 Today
+          </button>
+
+          <button
+            className="filter-action-btn clear-btn"
+            onClick={clearFilters}
+            title="Clear all filters"
+          >
+            ✖ Clear
+          </button>
         </div>
 
         {/* Stats Bar */}
