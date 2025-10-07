@@ -23,6 +23,7 @@
   --card-bg: #ffffff;
   --input-bg: #ffffff;
   --badge-bg: #e9ecef;
+  --button-glow: rgba(0,0,0,0.06);
 }
 
 /* Dark Mode Variables - UPDATED WITH SOLID DEEP BLUE */
@@ -41,6 +42,7 @@
   --card-bg: #16213e;
   --input-bg: #1a2942;
   --badge-bg: #2a3f5f;
+  --button-glow: rgba(64,93,230,0.12);
 }
 
 body {
@@ -257,7 +259,7 @@ body {
   color: #ffffff;
 }
 
-/* Filter Action Buttons - NEW */
+/* Filter Action Buttons - Improved for Dark Mode */
 .filter-action-btn {
   padding: 0.75rem 1.25rem;
   border: 2px solid var(--border-color);
@@ -271,6 +273,9 @@ body {
   align-items: center;
   gap: 0.5rem;
   justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 2px 6px var(--shadow);
+  background-clip: padding-box;
 }
 
 .filter-action-btn:hover {
@@ -282,6 +287,7 @@ body {
   transform: translateY(0);
 }
 
+/* Light Mode Variants (keep similar to your original look) */
 .today-btn {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
@@ -302,14 +308,29 @@ body {
   background: linear-gradient(135deg, #e082ea 0%, #e4465b 100%);
 }
 
+/* DARK MODE THEMING — Deep, soft-glow blues and pinks */
 .dark-mode .today-btn {
-  background: linear-gradient(135deg, #5568d3 0%, #63408b 100%);
-  border-color: #5568d3;
+  background: linear-gradient(135deg, #2b4cb3 0%, #405de6 100%);
+  border-color: #4b6fff;
+  box-shadow: 0 0 10px var(--button-glow);
+  color: #ffffff;
+}
+
+.dark-mode .today-btn:hover {
+  background: linear-gradient(135deg, #3a5cf0 0%, #556fff 100%);
+  box-shadow: 0 0 15px rgba(85, 111, 255, 0.5);
 }
 
 .dark-mode .clear-btn {
-  background: linear-gradient(135deg, #e082ea 0%, #e4465b 100%);
-  border-color: #e4465b;
+  background: linear-gradient(135deg, #b24592 0%, #f15f79 100%);
+  border-color: #f15f79;
+  box-shadow: 0 0 10px rgba(241, 95, 121, 0.3);
+  color: #ffffff;
+}
+
+.dark-mode .clear-btn:hover {
+  background: linear-gradient(135deg, #ff758c 0%, #ff7eb3 100%);
+  box-shadow: 0 0 15px rgba(255, 126, 179, 0.5);
 }
 
 /* Stats Bar */
@@ -522,7 +543,7 @@ body {
   background: var(--bg-tertiary);
 }
 
-.detail-group {
+detail-group {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;

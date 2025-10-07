@@ -90,47 +90,67 @@ function AppContent() {
     document.title = "Auto Shop Dashboard - Real-Time Orders";
   }, []);
 
-  // Load historical data
+  // Load historical data with pagination
   useEffect(() => {
     const loadHistoricalData = async () => {
       if (!REST_API_URL || historicalDataLoaded) return;
 
+      if (mountedRef.current) setConnectionStatus("loading-history");
+
+      let allEvents = [];
+      let lastKey = null;
+
       try {
-        const dataEndpoint = `${REST_API_URL}/data`;
-        console.log(`Loading historical data from: ${dataEndpoint}`);
-        setConnectionStatus("loading-history");
+        do {
+          // Build query URL with optional pagination token
+          const url = new URL(`${REST_API_URL}/data`);
+          url.searchParams.append("limit", "500"); // max per Lambda page
+          url.searchParams.append("hours", "168"); // last 7 days
+          if (lastKey) url.searchParams.append("lastKey", lastKey);
 
-        const response = await fetch(dataEndpoint);
-        if (response.ok) {
-          const historicalData = await response.json();
-          console.log(`Received ${historicalData.length} historical events`);
+          console.log(`Fetching historical events: ${url.toString()}`);
+          const response = await fetch(url.toString());
 
-          if (
-            historicalData &&
-            Array.isArray(historicalData) &&
-            historicalData.length > 0
-          ) {
-            const parsedEvents = historicalData
+          if (!response.ok) {
+            throw new Error(
+              `Failed to fetch: ${response.status} ${response.statusText}`
+            );
+          }
+
+          const result = await response.json();
+          const eventsPage = result.events || [];
+
+          allEvents = allEvents.concat(
+            eventsPage
               .map((rawEvent) => parseWebhookData(rawEvent))
               .filter(Boolean)
-              .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          );
 
-            console.log(
-              `✅ Successfully parsed ${parsedEvents.length} repair orders`
-            );
+          lastKey = result.lastKey;
+          console.log(
+            `Fetched ${eventsPage.length} events, total so far: ${allEvents.length}`
+          );
 
-            if (parsedEvents.length > 0 && mountedRef.current) {
-              setEvents(parsedEvents);
-            }
+          if (mountedRef.current) {
+            setConnectionStatus(`loading-history (${allEvents.length} events)`);
           }
-        }
-        setHistoricalDataLoaded(true);
-      } catch (error) {
-        console.log(`Failed to load historical data: ${error.message}`);
-        setHistoricalDataLoaded(true);
-      } finally {
+        } while (lastKey);
+
+        // Sort newest first
+        allEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        console.log(`✅ Loaded all historical events: ${allEvents.length}`);
+
         if (mountedRef.current) {
-          setConnectionStatus("disconnected");
+          setEvents(allEvents);
+          setHistoricalDataLoaded(true);
+          setConnectionStatus("disconnected"); // ready for WebSocket
+        }
+      } catch (error) {
+        console.error("Failed to load historical data:", error);
+        if (mountedRef.current) {
+          setConnectionStatus("error");
+          setHistoricalDataLoaded(true);
         }
       }
     };
@@ -138,7 +158,7 @@ function AppContent() {
     if (mountedRef.current && !historicalDataLoaded) {
       loadHistoricalData();
     }
-  }, [historicalDataLoaded, connectionStatus]);
+  }, [historicalDataLoaded]);
 
   // WebSocket connection
   const connectWebSocket = useCallback(() => {
