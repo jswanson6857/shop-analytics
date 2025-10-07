@@ -1,4 +1,4 @@
-// src/App.js - COMPLETE FIX: All issues resolved
+// src/App.js - COMPLETE FIX: Paginated historical loading + WebSocket + UI intact
 import React, {
   useState,
   useEffect,
@@ -80,7 +80,6 @@ function AppContent() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedCategory, setSelectedCategory] = useState("all");
 
-  // NEW: For navigation from JobAnalytics to EventExplorer
   const [expandedEventId, setExpandedEventId] = useState(null);
 
   const websocketRef = useRef(null);
@@ -88,37 +87,46 @@ function AppContent() {
 
   useEffect(() => {
     document.title = "Auto Shop Dashboard - Real-Time Orders";
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (websocketRef.current) websocketRef.current.close();
+    };
   }, []);
 
-  // Load historical data with pagination
+  // --- Paginated historical fetch ---
   useEffect(() => {
-    const loadHistoricalData = async () => {
+    const fetchHistoricalDataBatch = async () => {
       if (!REST_API_URL || historicalDataLoaded) return;
 
-      if (mountedRef.current) setConnectionStatus("loading-history");
+      setConnectionStatus("loading-history");
+      console.log("🔄 Starting paginated historical fetch...");
 
       let allEvents = [];
       let lastKey = null;
 
       try {
         do {
-          // Build query URL with optional pagination token
           const url = new URL(`${REST_API_URL}/data`);
-          url.searchParams.append("limit", "500"); // max per Lambda page
-          url.searchParams.append("hours", "168"); // last 7 days
+          url.searchParams.append("limit", "500"); // batch size
+          url.searchParams.append("hours", "720"); // last 30 days
           if (lastKey) url.searchParams.append("lastKey", lastKey);
 
-          console.log(`Fetching historical events: ${url.toString()}`);
+          console.log(`Fetching historical batch: ${url.toString()}`);
           const response = await fetch(url.toString());
-
-          if (!response.ok) {
-            throw new Error(
-              `Failed to fetch: ${response.status} ${response.statusText}`
-            );
-          }
+          if (!response.ok)
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 
           const result = await response.json();
           const eventsPage = result.events || [];
+
+          console.log(
+            `Received ${
+              eventsPage.length
+            } events in this batch, total so far: ${
+              allEvents.length + eventsPage.length
+            }`
+          );
 
           allEvents = allEvents.concat(
             eventsPage
@@ -127,16 +135,11 @@ function AppContent() {
           );
 
           lastKey = result.lastKey;
-          console.log(
-            `Fetched ${eventsPage.length} events, total so far: ${allEvents.length}`
-          );
 
-          if (mountedRef.current) {
+          if (mountedRef.current)
             setConnectionStatus(`loading-history (${allEvents.length} events)`);
-          }
         } while (lastKey);
 
-        // Sort newest first
         allEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         console.log(`✅ Loaded all historical events: ${allEvents.length}`);
@@ -144,10 +147,10 @@ function AppContent() {
         if (mountedRef.current) {
           setEvents(allEvents);
           setHistoricalDataLoaded(true);
-          setConnectionStatus("disconnected"); // ready for WebSocket
+          setConnectionStatus("disconnected");
         }
-      } catch (error) {
-        console.error("Failed to load historical data:", error);
+      } catch (err) {
+        console.error("❌ Failed to fetch historical data:", err);
         if (mountedRef.current) {
           setConnectionStatus("error");
           setHistoricalDataLoaded(true);
@@ -155,12 +158,10 @@ function AppContent() {
       }
     };
 
-    if (mountedRef.current && !historicalDataLoaded) {
-      loadHistoricalData();
-    }
+    if (mountedRef.current && !historicalDataLoaded) fetchHistoricalDataBatch();
   }, [historicalDataLoaded]);
 
-  // WebSocket connection
+  // --- WebSocket ---
   const connectWebSocket = useCallback(() => {
     if (!mountedRef.current || !WEBSOCKET_URL) return;
     if (websocketRef.current?.readyState === WebSocket.OPEN) return;
@@ -169,51 +170,43 @@ function AppContent() {
     setConnectionStatus("connecting");
 
     try {
-      const websocket = new WebSocket(WEBSOCKET_URL);
-      websocketRef.current = websocket;
+      const ws = new WebSocket(WEBSOCKET_URL);
+      websocketRef.current = ws;
 
-      websocket.onopen = () => {
+      ws.onopen = () => {
         console.log("WebSocket connected");
-        if (mountedRef.current) {
-          setConnectionStatus("connected");
-        }
+        if (mountedRef.current) setConnectionStatus("connected");
       };
 
-      websocket.onmessage = (event) => {
+      ws.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data);
-          if (message.type === "webhook_data" && message.event === "insert") {
-            const rawWebhook = {
-              id: message.data.id,
-              timestamp: message.data.timestamp,
-              body: message.data.parsed_body,
-            };
-
-            const parsedEvent = parseWebhookData(rawWebhook);
+          const msg = JSON.parse(event.data);
+          if (msg.type === "webhook_data" && msg.event === "insert") {
+            const parsedEvent = parseWebhookData({
+              id: msg.data.id,
+              timestamp: msg.data.timestamp,
+              body: msg.data.parsed_body,
+            });
             if (parsedEvent && mountedRef.current) {
               setEvents((prev) => [parsedEvent, ...prev.slice(0, 999)]);
             }
           }
-        } catch (error) {
-          console.log("Error parsing WebSocket message", error);
+        } catch (e) {
+          console.log("Error parsing WebSocket message:", e);
         }
       };
 
-      websocket.onclose = () => {
+      ws.onclose = () => {
         console.log("WebSocket closed");
-        if (mountedRef.current) {
-          setConnectionStatus("disconnected");
-        }
+        if (mountedRef.current) setConnectionStatus("disconnected");
       };
 
-      websocket.onerror = (error) => {
-        console.log("WebSocket error", error);
-        if (mountedRef.current) {
-          setConnectionStatus("error");
-        }
+      ws.onerror = (err) => {
+        console.log("WebSocket error:", err);
+        if (mountedRef.current) setConnectionStatus("error");
       };
-    } catch (error) {
-      console.log("Failed to create WebSocket", error);
+    } catch (err) {
+      console.log("Failed to create WebSocket:", err);
       setConnectionStatus("error");
     }
   }, []);
@@ -224,29 +217,11 @@ function AppContent() {
     }
   }, [historicalDataLoaded, connectionStatus, connectWebSocket]);
 
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-      if (websocketRef.current) {
-        websocketRef.current.close();
-      }
-    };
-  }, []);
-
-  // FIXED: Filter data using TIMESTAMP (last activity) not createdDate
+  // --- Filtering ---
   const filteredData = useMemo(() => {
-    console.log("🔍 FILTERING - START:", {
-      totalEvents: events.length,
-      searchTerm,
-      dateFrom,
-      dateTo,
-      statusFilter,
-    });
+    if (!events.length) return [];
 
-    if (events.length === 0) return [];
-
-    const filtered = events.filter((ro) => {
-      // Search filter
+    return events.filter((ro) => {
       const search = searchTerm.toLowerCase();
       const matchesSearch =
         !search ||
@@ -256,43 +231,32 @@ function AppContent() {
         ro.technician?.firstName?.toLowerCase().includes(search) ||
         ro.event?.toLowerCase().includes(search);
 
-      // FIXED: Use TIMESTAMP (last activity) for date filtering
-      const activityDate = new Date(ro.timestamp); // Use timestamp (last activity)
+      const activityDate = new Date(ro.timestamp);
       const matchesDateFrom =
         !dateFrom || activityDate >= new Date(dateFrom + "T00:00:00");
       const matchesDateTo =
         !dateTo || activityDate <= new Date(dateTo + "T23:59:59");
 
-      // Status filter
       const matchesStatus =
         statusFilter === "all" || ro.repairOrderStatus?.name === statusFilter;
 
       return matchesSearch && matchesDateFrom && matchesDateTo && matchesStatus;
     });
-
-    console.log(
-      `✅ FILTERING - DONE: ${filtered.length} of ${events.length} records passed`
-    );
-    return filtered;
   }, [events, searchTerm, dateFrom, dateTo, statusFilter]);
 
-  // NEW: Navigate to Event Explorer with specific RO expanded
+  // --- Navigate to Event Explorer ---
   const navigateToRO = useCallback(
     (roNumber) => {
-      // Find the event with this RO number
       const event = events.find((e) => e.repairOrderNumber === roNumber);
-      if (event) {
-        setCurrentPage("events");
-        setExpandedEventId(event.id);
+      if (!event) return;
 
-        // Scroll to the RO after a short delay
-        setTimeout(() => {
-          const element = document.getElementById(`ro-${event.id}`);
-          if (element) {
-            element.scrollIntoView({ behavior: "smooth", block: "center" });
-          }
-        }, 100);
-      }
+      setCurrentPage("events");
+      setExpandedEventId(event.id);
+
+      setTimeout(() => {
+        const el = document.getElementById(`ro-${event.id}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 100);
     },
     [events]
   );
