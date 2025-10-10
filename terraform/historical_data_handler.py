@@ -1,9 +1,11 @@
+# terraform/historical_data_handler.py - UPDATED: Uses pk field for queries
 import os
 import json
 import boto3
 from datetime import datetime, timedelta
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key
+import base64
 
 dynamodb = boto3.resource('dynamodb')
 table_name = os.environ.get('DYNAMODB_TABLE_NAME', 'webhook-ingestion-webhook-data')
@@ -24,47 +26,80 @@ def get_cors_headers():
     }
 
 def lambda_handler(event, context):
+    """
+    Fetch historical repair order data with pagination support
+    Uses the all-timestamp-index GSI for efficient time-based queries
+    """
     try:
+        # Handle OPTIONS for CORS
         if event.get('httpMethod') == 'OPTIONS':
-            return {'statusCode': 200, 'headers': get_cors_headers(), 'body': json.dumps({'message': 'CORS preflight'})}
+            return {
+                'statusCode': 200,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'message': 'CORS preflight'})
+            }
 
-        # Pagination support
+        # Parse query parameters
         query_params = event.get('queryStringParameters') or {}
+        
+        # Pagination support
         limit = min(int(query_params.get('limit', 500)), 500)
-        last_key = query_params.get('last_key')  # Base64 or JSON encoded
+        last_key_encoded = query_params.get('lastKey')
+        
+        # Time range (default: last 30 days)
+        hours = int(query_params.get('hours', 720))  # 720 hours = 30 days
+        start_time = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
 
-        # Last 30 days
-        start_time = (datetime.utcnow() - timedelta(days=30)).isoformat()
-
+        # Build query
         key_condition = Key('pk').eq('all') & Key('timestamp').gte(start_time)
-        kwargs = {
+        
+        query_kwargs = {
             'IndexName': 'all-timestamp-index',
             'KeyConditionExpression': key_condition,
-            'Limit': limit
+            'Limit': limit,
+            'ScanIndexForward': False  # Newest first
         }
 
-        if last_key:
-            import base64
-            kwargs['ExclusiveStartKey'] = json.loads(base64.b64decode(last_key).decode('utf-8'))
+        # Handle pagination
+        if last_key_encoded:
+            try:
+                last_key = json.loads(base64.b64decode(last_key_encoded).decode('utf-8'))
+                query_kwargs['ExclusiveStartKey'] = last_key
+            except Exception as e:
+                print(f"Error decoding lastKey: {str(e)}")
+                # Continue without lastKey if decoding fails
 
-        response = table.query(**kwargs)
+        # Execute query
+        response = table.query(**query_kwargs)
         items = response.get('Items', [])
 
-        # Encode the last evaluated key for pagination
+        # Encode next pagination key
         next_key = response.get('LastEvaluatedKey')
         encoded_next_key = None
         if next_key:
-            encoded_next_key = base64.b64encode(json.dumps(next_key).encode('utf-8')).decode('utf-8')
+            encoded_next_key = base64.b64encode(
+                json.dumps(next_key, cls=DecimalEncoder).encode('utf-8')
+            ).decode('utf-8')
 
+        # Return results
         return {
             'statusCode': 200,
             'headers': get_cors_headers(),
-            'body': json.dumps({'items': items, 'next_key': encoded_next_key}, cls=DecimalEncoder)
+            'body': json.dumps({
+                'events': items,
+                'lastKey': encoded_next_key,
+                'count': len(items),
+                'hasMore': next_key is not None
+            }, cls=DecimalEncoder)
         }
 
     except Exception as e:
+        print(f"Error fetching historical data: {str(e)}")
         return {
             'statusCode': 500,
             'headers': get_cors_headers(),
-            'body': json.dumps({'error': str(e)})
+            'body': json.dumps({
+                'error': 'Internal server error',
+                'message': str(e)
+            })
         }

@@ -1,4 +1,4 @@
-// src/utils/dataParser.js - COMPLETE FIX: Proportional tax + Sales terminology
+// src/utils/dataParser.js - UPDATED: RO Combination + Posted Filter
 
 export const JOB_CATEGORIES = {
   DIAG: {
@@ -53,30 +53,25 @@ export const getJobCategory = (jobName) => {
   return "OTHER";
 };
 
-// NEW: Calculate proportional tax for a job
 export const calculateJobTax = (job, roTotalSales, roTaxes) => {
   if (!roTotalSales || roTotalSales === 0) return 0;
-
-  // Proportional tax: (job.subtotal / ro.totalSales) × ro.taxes
   const taxPortion = (job.subtotal / roTotalSales) * roTaxes;
-  return Math.round(taxPortion); // Round to nearest cent
+  return Math.round(taxPortion);
 };
 
-// NEW: Calculate job total including tax
 export const calculateJobTotal = (job, roTotalSales, roTaxes) => {
   const jobTax = calculateJobTax(job, roTotalSales, roTaxes);
   return job.subtotal + jobTax;
 };
 
 const determinePriority = (data) => {
-  // Use totalSales + taxes for balance calculation
   const totalWithTax = (data.totalSales || 0) + (data.taxes || 0);
   const balanceDue = totalWithTax - (data.amountPaid || 0);
   const status = data.repairOrderStatus?.name || "";
 
-  if (balanceDue > 500000) return "high"; // > $5000
+  if (balanceDue > 500000) return "high";
   if (status.toLowerCase().includes("arrived")) return "high";
-  if (balanceDue > 100000) return "medium"; // > $1000
+  if (balanceDue > 100000) return "medium";
   if (status.toLowerCase().includes("progress")) return "medium";
   return "normal";
 };
@@ -85,7 +80,6 @@ export const parseWebhookData = (webhook) => {
   try {
     let data, event;
 
-    // Handle different webhook structures
     if (webhook.body?.data) {
       data = webhook.body.data;
       event = webhook.body.event || "";
@@ -127,8 +121,6 @@ export const parseWebhookData = (webhook) => {
     }
 
     const orderNumber = data.repairOrderNumber || data.id;
-
-    // Parse jobs and add categories + calculated tax
     const roTotalSales = data.totalSales || 0;
     const roTaxes = data.taxes || 0;
 
@@ -139,12 +131,11 @@ export const parseWebhookData = (webhook) => {
       return {
         ...job,
         category: getJobCategory(job.name),
-        calculatedTax: jobTax, // NEW: Proportional tax
-        totalWithTax: jobTotal, // NEW: Total including tax
+        calculatedTax: jobTax,
+        totalWithTax: jobTotal,
       };
     });
 
-    // Calculate job stats (ONLY approved jobs count toward sales)
     const approvedJobs = jobs.filter((j) => j.authorized === true);
     const jobStats = {
       authorized: approvedJobs.length,
@@ -158,7 +149,6 @@ export const parseWebhookData = (webhook) => {
       ? `${webhook.id}`
       : `repair-${orderNumber}-${webhook.timestamp || Date.now()}`;
 
-    // Calculate totals
     const totalWithTax = roTotalSales + roTaxes;
     const balanceDue = totalWithTax - (data.amountPaid || 0);
 
@@ -174,7 +164,7 @@ export const parseWebhookData = (webhook) => {
       repairOrderNumber: orderNumber,
       jobs: jobs,
       jobStats: jobStats,
-      approvedJobs: approvedJobs, // NEW: Only approved jobs
+      approvedJobs: approvedJobs,
       totalWithTax: totalWithTax,
       balanceDue: balanceDue,
       priority: determinePriority(data),
@@ -185,6 +175,85 @@ export const parseWebhookData = (webhook) => {
     console.error("❌ Parser error:", error.message, error);
     return null;
   }
+};
+
+/**
+ * CRITICAL NEW FUNCTION: Combine all events for the same RO number
+ * Groups events by repairOrderNumber and merges them into single RO objects
+ */
+export const combineROEvents = (events) => {
+  if (!events || events.length === 0) return [];
+
+  // Group events by RO number
+  const roGroups = {};
+
+  events.forEach((event) => {
+    const roNumber = event.repairOrderNumber;
+    if (!roNumber) return;
+
+    if (!roGroups[roNumber]) {
+      roGroups[roNumber] = [];
+    }
+    roGroups[roNumber].push(event);
+  });
+
+  // Combine each group into a single RO
+  const combinedROs = Object.entries(roGroups).map(([roNumber, roEvents]) => {
+    // Sort events by timestamp (newest first)
+    const sortedEvents = roEvents.sort(
+      (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+    );
+
+    // Most recent event is the "current state"
+    const mostRecent = sortedEvents[0];
+
+    // Combine all jobs from all events, removing duplicates by job ID
+    const allJobs = [];
+    const jobIds = new Set();
+
+    sortedEvents.forEach((event) => {
+      if (event.jobs) {
+        event.jobs.forEach((job) => {
+          if (!jobIds.has(job.id)) {
+            jobIds.add(job.id);
+            allJobs.push(job);
+          }
+        });
+      }
+    });
+
+    // Calculate combined stats
+    const approvedJobs = allJobs.filter((j) => j.authorized === true);
+    const declinedJobs = allJobs.filter((j) => j.authorized === false);
+    const pendingJobs = allJobs.filter(
+      (j) => j.authorized === null || j.authorized === undefined
+    );
+
+    const jobStats = {
+      authorized: approvedJobs.length,
+      declined: declinedJobs.length,
+      pending: pendingJobs.length,
+    };
+
+    // Create combined RO object using most recent data
+    return {
+      ...mostRecent,
+      id: `combined-ro-${roNumber}`,
+      jobs: allJobs,
+      jobStats: jobStats,
+      approvedJobs: approvedJobs,
+      declinedJobs: declinedJobs,
+      pendingJobs: pendingJobs,
+      events: sortedEvents, // Keep all events for reference
+      eventCount: sortedEvents.length,
+      isPosted: mostRecent.event?.toLowerCase().includes("posted by"),
+    };
+  });
+
+  // Sort by most recent timestamp
+  return combinedROs.sort(
+    (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+  );
 };
 
 // Currency formatter

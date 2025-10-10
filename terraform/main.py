@@ -1,4 +1,4 @@
-# terraform/main.py - Updated to save to DynamoDB
+# terraform/main.py - UPDATED: Includes pk field for all-timestamp-index
 import json
 import logging
 import os
@@ -17,7 +17,7 @@ dynamodb = boto3.resource('dynamodb')
 def lambda_handler(event, context):
     """
     AWS Lambda function to handle webhook data ingestion
-    Now saves data to DynamoDB for real-time processing
+    Saves data to DynamoDB with pk='all' for global time-based queries
     """
     
     try:
@@ -73,13 +73,14 @@ def lambda_handler(event, context):
         elif user_agent and 'discord' in user_agent.lower():
             webhook_source = 'discord'
         elif parsed_body and 'object' in parsed_body:
-            webhook_source = 'stripe'  # Stripe objects
+            webhook_source = 'stripe'
         elif parsed_body and 'repository' in parsed_body:
-            webhook_source = 'github'  # GitHub webhooks
+            webhook_source = 'github'
         
         # Prepare DynamoDB item
         webhook_item = {
             'id': webhook_id,
+            'pk': 'all',  # CRITICAL: Enables global time-based queries
             'timestamp': request_time_str,
             'source': webhook_source,
             'http_method': http_method,

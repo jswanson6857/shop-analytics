@@ -1,5 +1,5 @@
-// src/components/JobAnalyticsPage.js - COMPLETE: Clickable categories with modal + Approved vs Declined + Filter Buttons
-import React, { useState, useMemo } from "react";
+// src/components/JobAnalyticsPage.js - UPDATED: Opens RO modal, grays contacted jobs
+import React, { useState, useMemo, useEffect } from "react";
 import {
   formatCurrency,
   JOB_CATEGORIES,
@@ -15,21 +15,34 @@ const JobAnalyticsPage = ({
   setDateFrom,
   dateTo,
   setDateTo,
-  navigateToRO,
+  openROModal,
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [modalData, setModalData] = useState(null);
+  const [contactedJobs, setContactedJobs] = useState(new Set());
   const itemsPerPage = 12;
 
-  // Helper function to get today's date in YYYY-MM-DD format
+  // Load contacted jobs from follow-up tracker
+  useEffect(() => {
+    const savedFollowUps = localStorage.getItem("follow-up-jobs");
+    if (savedFollowUps) {
+      try {
+        const followUps = JSON.parse(savedFollowUps);
+        const jobIds = new Set(followUps.map((f) => f.jobId));
+        setContactedJobs(jobIds);
+      } catch (e) {
+        console.error("Failed to load contacted jobs:", e);
+      }
+    }
+  }, []);
+
   const getTodayDate = () => {
     const today = new Date();
     return today.toISOString().split("T")[0];
   };
 
-  // Apply Today filter
   const applyTodayFilter = () => {
     const today = getTodayDate();
     setDateFrom(today);
@@ -37,7 +50,6 @@ const JobAnalyticsPage = ({
     setCurrentPage(1);
   };
 
-  // Clear all filters
   const clearFilters = () => {
     setSearchTerm("");
     setDateFrom("");
@@ -46,7 +58,7 @@ const JobAnalyticsPage = ({
     setCurrentPage(1);
   };
 
-  // Calculate analytics by category (ALL JOBS - approved and declined)
+  // Calculate analytics by category
   const categoryAnalytics = useMemo(() => {
     const stats = {};
 
@@ -78,6 +90,7 @@ const JobAnalyticsPage = ({
           orderStatus: ro.repairOrderStatus?.name,
           calculatedTax: jobTax,
           totalWithTax: jobTotal,
+          isContacted: contactedJobs.has(job.id),
         };
 
         if (job.authorized === true) {
@@ -94,9 +107,8 @@ const JobAnalyticsPage = ({
     });
 
     return stats;
-  }, [data]);
+  }, [data, contactedJobs]);
 
-  // Filter categories
   const filteredCategories = useMemo(() => {
     let categories = Object.entries(categoryAnalytics);
 
@@ -114,7 +126,6 @@ const JobAnalyticsPage = ({
     return categories.sort(([a], [b]) => a.localeCompare(b));
   }, [categoryAnalytics, selectedCategory, searchTerm]);
 
-  // Paginate
   const paginatedCategories = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     return filteredCategories.slice(start, start + itemsPerPage);
@@ -122,7 +133,6 @@ const JobAnalyticsPage = ({
 
   const totalPages = Math.ceil(filteredCategories.length / itemsPerPage);
 
-  // Calculate overall stats
   const overallStats = useMemo(() => {
     const stats = Object.values(categoryAnalytics);
     return {
@@ -131,7 +141,6 @@ const JobAnalyticsPage = ({
     };
   }, [categoryAnalytics]);
 
-  // Handle category click
   const handleCategoryClick = (category, stats) => {
     const allJobs = [
       ...stats.approvedJobs.map((j) => ({ ...j, status: "approved" })),
@@ -141,10 +150,10 @@ const JobAnalyticsPage = ({
     setShowModal(true);
   };
 
-  // Handle job click in modal
-  const handleJobClick = (roNumber) => {
+  // UPDATED: Open RO modal instead of navigating
+  const handleJobClick = (job) => {
     setShowModal(false);
-    navigateToRO(roNumber);
+    openROModal(job.repairOrderNumber);
   };
 
   return (
@@ -195,12 +204,6 @@ const JobAnalyticsPage = ({
                 setCurrentPage(1);
               }}
             />
-            <span
-              className="filter-tooltip"
-              title="Shows all repair orders with activity in this date range (not just created)"
-            >
-              ❓
-            </span>
           </div>
 
           <input
@@ -231,7 +234,6 @@ const JobAnalyticsPage = ({
           </button>
         </div>
 
-        {/* Overall Summary Stats */}
         <div className="stats-bar">
           <div className="stat-item">
             <div className="stat-value" style={{ color: "#28a745" }}>
@@ -282,7 +284,6 @@ const JobAnalyticsPage = ({
                 e.currentTarget.style.transform = "translateY(0)";
               }}
             >
-              {/* Header */}
               <div
                 style={{
                   display: "flex",
@@ -324,7 +325,6 @@ const JobAnalyticsPage = ({
                 </div>
               </div>
 
-              {/* Stats */}
               <div
                 style={{
                   display: "flex",
@@ -332,7 +332,6 @@ const JobAnalyticsPage = ({
                   gap: "0.75rem",
                 }}
               >
-                {/* Approved Sales */}
                 <div
                   style={{
                     background: "#d4edda",
@@ -368,7 +367,6 @@ const JobAnalyticsPage = ({
                   </div>
                 </div>
 
-                {/* NEW: Approved vs Declined Stats */}
                 <div
                   style={{
                     background: "var(--bg-tertiary)",
@@ -394,7 +392,6 @@ const JobAnalyticsPage = ({
                       </span>
                     </div>
 
-                    {/* Approval Rate */}
                     {stats.approved + stats.declined > 0 && (
                       <div style={{ marginTop: "0.5rem" }}>
                         <div
@@ -416,7 +413,6 @@ const JobAnalyticsPage = ({
                           </strong>
                         </div>
 
-                        {/* Visual bar */}
                         <div
                           style={{
                             height: "8px",
@@ -444,7 +440,6 @@ const JobAnalyticsPage = ({
                   </div>
                 </div>
 
-                {/* Click to view */}
                 <div
                   style={{
                     textAlign: "center",
@@ -489,7 +484,7 @@ const JobAnalyticsPage = ({
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Modal with Contacted Job Graying */}
       {showModal && modalData && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -505,7 +500,6 @@ const JobAnalyticsPage = ({
               </button>
             </div>
 
-            {/* Stats Summary */}
             <div
               style={{
                 padding: "1rem",
@@ -588,17 +582,49 @@ const JobAnalyticsPage = ({
                 .map((job) => (
                   <div
                     key={job.id}
-                    className="job-modal-item"
-                    onClick={() => handleJobClick(job.repairOrderNumber)}
+                    className={`job-modal-item ${
+                      job.isContacted ? "contacted" : ""
+                    } ${
+                      job.status === "declined" && job.isContacted
+                        ? "unclickable"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      !(job.status === "declined" && job.isContacted) &&
+                      handleJobClick(job)
+                    }
                     style={{
                       borderLeft: `4px solid ${
                         job.status === "approved" ? "#28a745" : "#dc3545"
                       }`,
+                      opacity:
+                        job.isContacted && job.status === "declined" ? 0.5 : 1,
+                      cursor:
+                        job.status === "declined" && job.isContacted
+                          ? "not-allowed"
+                          : "pointer",
                     }}
                   >
                     <div className="job-modal-header">
                       <div>
-                        <div className="job-modal-name">{job.name}</div>
+                        <div className="job-modal-name">
+                          {job.name}
+                          {job.isContacted && (
+                            <span
+                              className="contacted-badge"
+                              style={{
+                                marginLeft: "0.5rem",
+                                padding: "0.2rem 0.5rem",
+                                background: "#6c757d",
+                                color: "white",
+                                borderRadius: "12px",
+                                fontSize: "0.7rem",
+                              }}
+                            >
+                              📞 Contacted
+                            </span>
+                          )}
+                        </div>
                         <div className="job-modal-meta">
                           RO #{job.repairOrderNumber} •
                           {job.customer &&
@@ -645,168 +671,14 @@ const JobAnalyticsPage = ({
       )}
 
       <style jsx>{`
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0, 0, 0, 0.7);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          padding: 1rem;
-          backdrop-filter: blur(4px);
+        .job-modal-item.unclickable:hover {
+          border-color: var(--border-color) !important;
+          box-shadow: none !important;
+          transform: none !important;
         }
 
-        .modal-content {
-          background: var(--card-bg);
-          border-radius: 12px;
-          max-width: 800px;
-          width: 100%;
-          max-height: 90vh;
-          display: flex;
-          flex-direction: column;
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-        }
-
-        .modal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 1.5rem;
-          border-bottom: 2px solid var(--border-color);
-        }
-
-        .modal-header h2 {
-          margin: 0;
-          color: var(--text-primary);
-          font-size: 1.5rem;
-        }
-
-        .modal-close {
-          background: none;
-          border: none;
-          font-size: 2rem;
-          color: var(--text-secondary);
-          cursor: pointer;
-          padding: 0;
-          width: 2rem;
-          height: 2rem;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 4px;
-          transition: all 0.2s ease;
-        }
-
-        .modal-close:hover {
-          background: var(--bg-tertiary);
-          color: var(--text-primary);
-        }
-
-        .modal-body {
-          padding: 1rem;
-          overflow-y: auto;
-          flex: 1;
-        }
-
-        .job-modal-item {
-          background: var(--bg-tertiary);
-          border: 2px solid var(--border-color);
-          border-radius: 8px;
-          padding: 1rem;
-          margin-bottom: 1rem;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .job-modal-item:hover {
-          border-color: #007bff;
-          box-shadow: 0 4px 12px var(--shadow-hover);
-          transform: translateX(4px);
-        }
-
-        .job-modal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          margin-bottom: 0.75rem;
-        }
-
-        .job-modal-name {
-          font-weight: 600;
-          color: var(--text-primary);
-          font-size: 1.1rem;
-          margin-bottom: 0.25rem;
-        }
-
-        .job-modal-meta {
-          font-size: 0.85rem;
-          color: var(--text-secondary);
-        }
-
-        .job-modal-amount {
-          font-size: 1.5rem;
-          font-weight: 700;
-        }
-
-        .job-modal-details {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.5rem;
-        }
-
-        .job-modal-badge {
-          padding: 0.25rem 0.75rem;
-          border-radius: 12px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          background: var(--card-bg);
-          color: var(--text-secondary);
-          border: 1px solid var(--border-color);
-        }
-
-        .job-modal-badge.approved {
-          background: #d4edda;
-          color: #155724;
-          border-color: #28a745;
-        }
-
-        .job-modal-badge.declined {
-          background: #f8d7da;
-          color: #721c24;
-          border-color: #dc3545;
-        }
-
-        .filter-tooltip {
-          position: absolute;
-          right: 0.5rem;
-          top: 50%;
-          transform: translateY(-50%);
-          cursor: help;
-          font-size: 0.9rem;
-          color: var(--text-secondary);
-        }
-
-        @media (max-width: 768px) {
-          .modal-content {
-            max-height: 95vh;
-          }
-
-          .modal-header h2 {
-            font-size: 1.2rem;
-          }
-
-          .job-modal-header {
-            flex-direction: column;
-            gap: 0.5rem;
-          }
-
-          .job-modal-amount {
-            font-size: 1.2rem;
-          }
+        .contacted-badge {
+          animation: pulse 2s infinite;
         }
       `}</style>
     </>
