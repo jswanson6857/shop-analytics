@@ -479,6 +479,7 @@ function AppContent() {
             setStatusFilter={setStatusFilter}
             connectionStatus={connectionStatus}
             openROModal={openROModal}
+            navigateToEvent={navigateToEvent} // ✅ now used
           />
         )}
 
