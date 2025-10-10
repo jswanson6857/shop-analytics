@@ -1,4 +1,3 @@
-# .github/workflows/deploy.yml
 name: Deploy Infrastructure and Frontend
 
 on:
@@ -24,12 +23,10 @@ jobs:
     name: "Destroy Infrastructure"
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.destroy == 'true'
-
     defaults:
       run:
         shell: bash
         working-directory: ./terraform
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,19 +57,16 @@ jobs:
     name: "Deploy Infrastructure"
     runs-on: ubuntu-latest
     if: github.event.inputs.destroy != 'true'
-
     defaults:
       run:
         shell: bash
         working-directory: ./terraform
-
     outputs:
       websocket_url: ${{ steps.tf_output.outputs.websocket_url }}
       s3_bucket: ${{ steps.tf_output.outputs.s3_bucket }}
       cloudfront_url: ${{ steps.tf_output.outputs.cloudfront_url }}
       cloudfront_distribution_id: ${{ steps.tf_output.outputs.cloudfront_distribution_id }}
       webhook_endpoint: ${{ steps.tf_output.outputs.webhook_endpoint }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -155,7 +149,6 @@ jobs:
           TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
       - name: Get Terraform Outputs
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         id: tf_output
         run: |
           echo "websocket_url=$(terraform output -raw websocket_api_url)" >> $GITHUB_OUTPUT
@@ -169,12 +162,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: terraform
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.inputs.destroy != 'true'
-
     defaults:
       run:
         shell: bash
         working-directory: ./frontend
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -194,16 +185,15 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: |
-          rm -f package-lock.json
-          npm install
-          npm install --package-lock-only
+        run: npm ci
 
-      - name: Create environment file with WebSocket URL
+      - name: Create environment file with WebSocket + Auth0
         run: |
           echo "REACT_APP_WEBSOCKET_URL=${{ needs.terraform.outputs.websocket_url }}" > .env
+          echo "REACT_APP_AUTH0_DOMAIN=${{ secrets.OKTA_ISSUER }}" >> .env
+          echo "REACT_APP_AUTH0_CLIENT_ID=${{ secrets.OKTA_CLIENT_ID }}" >> .env
           echo "NODE_ENV=production" >> .env
-          echo "Environment file created with WebSocket URL:"
+          echo "✅ Environment file created:"
           cat .env
 
       - name: Build React application
@@ -214,99 +204,45 @@ jobs:
           echo "Verifying WebSocket URL is embedded in the build..."
           if find build/static/js/ -name "*.js" -exec grep -l "wss://" {} \; | head -1 > /dev/null; then
             echo "✅ WebSocket URL found in JavaScript bundle"
-            echo "Found in file: $(find build/static/js/ -name "*.js" -exec grep -l "wss://" {} \; | head -1)"
           else
-            echo "❌ WebSocket URL NOT found in build - this will cause the original issue!"
+            echo "❌ WebSocket URL NOT found in build"
             exit 1
           fi
 
       - name: Deploy to S3 with cache-busting headers
         run: |
           echo "Deploying to S3 bucket: ${{ needs.terraform.outputs.s3_bucket }}"
-
-          # Upload all files normally first
           aws s3 sync build/ s3://${{ needs.terraform.outputs.s3_bucket }}/ --delete
-
-          # Then fix cache headers on HTML files to solve the original user access issue
           aws s3 cp s3://${{ needs.terraform.outputs.s3_bucket }}/index.html s3://${{ needs.terraform.outputs.s3_bucket }}/index.html \
             --metadata-directive REPLACE \
             --cache-control "no-cache, no-store, must-revalidate" \
             --content-type "text/html"
 
-          echo "✅ Files uploaded with no-cache headers on HTML (fixes user access issue)"
-
-      - name: Invalidate CloudFront cache (critical for user access fix)
+      - name: Invalidate CloudFront cache
         run: |
-          echo "🔄 Invalidating CloudFront cache to ensure users get fresh content..."
-          echo "Distribution ID: ${{ needs.terraform.outputs.cloudfront_distribution_id }}"
-
           aws cloudfront create-invalidation \
             --distribution-id ${{ needs.terraform.outputs.cloudfront_distribution_id }} \
             --paths "/*"
 
-          echo "✅ CloudFront invalidation initiated"
-
-      - name: Wait for cache invalidation to propagate
+      - name: Test webhook endpoint functionality
         run: |
-          echo "⏳ Waiting for CloudFront invalidation to propagate globally..."
-          echo "This ensures users worldwide get the updated app with correct WebSocket URL"
-          sleep 90
-
-      - name: Test deployment accessibility
-        run: |
-          echo "🧪 Testing deployment accessibility..."
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" ${{ needs.terraform.outputs.cloudfront_url }})
-          echo "CloudFront response code: $RESPONSE"
-
-          if [ "$RESPONSE" = "200" ]; then
-            echo "✅ Deployment accessible via CloudFront"
+          echo "Testing webhook endpoint..."
+          RESPONSE=$(curl -s -w "%{http_code}" -X POST ${{ needs.terraform.outputs.webhook_endpoint }} \
+            -H "Content-Type: application/json" \
+            -d '{"event":"Test deployment"}')
+          HTTP_CODE="${RESPONSE: -3}"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Webhook endpoint working"
           else
-            echo "⚠️  CloudFront returned HTTP $RESPONSE (may be normal immediately after deployment)"
+            echo "❌ Webhook endpoint failed with code $HTTP_CODE"
+            exit 1
           fi
-
-      - name: Test WebSocket connectivity
-        run: |
-          echo "🔌 Testing WebSocket endpoint accessibility..."
-          WEBSOCKET_URL="${{ needs.terraform.outputs.websocket_url }}"
-
-          # Use curl to test WebSocket endpoint (basic connectivity test)
-          if curl -s --connect-timeout 10 --head "${WEBSOCKET_URL/wss:/https:}" > /dev/null 2>&1; then
-            echo "✅ WebSocket endpoint is accessible"
-          else
-            echo "⚠️  WebSocket endpoint test inconclusive (this is normal for WebSocket URLs)"
-          fi
-
-          echo "WebSocket URL for users: $WEBSOCKET_URL"
-
-      - name: Output deployment URLs and fix summary
-        run: |
-          echo ""
-          echo "🎉 DEPLOYMENT COMPLETED SUCCESSFULLY!"
-          echo "========================================="
-          echo ""
-          echo "📊 Your Auto Shop Dashboard URL (share this with users):"
-          echo "   ${{ needs.terraform.outputs.cloudfront_url }}"
-          echo ""
-          echo "🔧 ORIGINAL ISSUE FIXES APPLIED:"
-          echo "   ✅ WebSocket URL properly embedded in React build"
-          echo "   ✅ HTML files deployed with no-cache headers"
-          echo "   ✅ CloudFront cache invalidated globally"
-          echo "   ✅ Users will now get fresh app with correct WebSocket connection"
-          echo ""
-          echo "🔗 Technical Details:"
-          echo "   WebSocket URL: ${{ needs.terraform.outputs.websocket_url }}"
-          echo "   Webhook URL: ${{ needs.terraform.outputs.webhook_endpoint }}"
-          echo ""
-          echo "🕐 Allow 5-10 minutes for global propagation, then test from multiple devices"
-          echo ""
-          echo "🎯 The issue where other users couldn't see real-time data should now be resolved!"
 
   test_deployment:
     name: "Test Complete Pipeline"
     runs-on: ubuntu-latest
     needs: [terraform, frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.inputs.destroy != 'true'
-
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -315,56 +251,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Test webhook endpoint functionality
+      - name: Test deployment accessibility
         run: |
-          echo "🧪 Testing webhook endpoint to ensure real-time data flow..."
-
-          # Send test webhook data
-          RESPONSE=$(curl -s -w "%{http_code}" -X POST ${{ needs.terraform.outputs.webhook_endpoint }} \
-            -H "Content-Type: application/json" \
-            -d '{
-              "data": {
-                "repairOrderNumber": 12345,
-                "repairOrderStatus": {"name": "Work-In-Progress"},
-                "repairOrderCustomLabel": {"name": "GitHub Actions Test - User Access Fix"},
-                "totalSales": 35000,
-                "amountPaid": 10000,
-                "customerId": 98765,
-                "vehicleId": 54321,
-                "jobs": [{"name": "Oil Change", "authorized": true}],
-                "customerConcerns": [{"concern": "Engine noise"}]
-              },
-              "event": "Test repair order for deployment verification"
-            }')
-
-          echo "Webhook response: $RESPONSE"
-          HTTP_CODE="${RESPONSE: -3}"
-
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Webhook endpoint test passed - real-time data flow confirmed"
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" ${{ needs.terraform.outputs.cloudfront_url }})
+          echo "CloudFront response code: $RESPONSE"
+          if [ "$RESPONSE" = "200" ]; then
+            echo "✅ Deployment accessible"
           else
-            echo "❌ Webhook endpoint test failed with code: $HTTP_CODE"
+            echo "❌ Deployment inaccessible"
             exit 1
-          fi
-
-      - name: Final deployment summary
-        run: |
-          echo ""
-          echo "🎯 DEPLOYMENT TEST COMPLETE!"
-          echo "=============================="
-          echo ""
-          echo "✅ Infrastructure deployed successfully"
-          echo "✅ Frontend built with correct WebSocket URL" 
-          echo "✅ Cache-busting deployment completed"
-          echo "✅ Webhook endpoint tested and working"
-          echo ""
-          echo "🌍 SHARE THIS URL WITH ALL USERS:"
-          echo "   ${{ needs.terraform.outputs.cloudfront_url }}"
-          echo ""
-          echo "💡 NEXT STEPS:"
-          echo "   1. Test the dashboard from multiple devices/browsers"
-          echo "   2. Configure your auto shop system to send webhooks to:"
-          echo "      ${{ needs.terraform.outputs.webhook_endpoint }}"
-          echo "   3. Monitor real-time data updates across all user sessions"
-          echo ""
-          echo "🎉 The original issue should now be resolved for all users!"

@@ -772,8 +772,8 @@ const JobContactCard = ({
 function App() {
   return (
     <Auth0Provider
-      domain={process.env.REACT_APP_AUTH0_DOMAIN || "YOUR_AUTH0_DOMAIN"}
-      clientId={process.env.REACT_APP_AUTH0_CLIENT_ID || "YOUR_AUTH0_CLIENT_ID"}
+      domain={process.env.REACT_APP_AUTH0_DOMAIN}
+      clientId={process.env.REACT_APP_AUTH0_CLIENT_ID}
       authorizationParams={{
         redirect_uri: window.location.origin,
       }}
