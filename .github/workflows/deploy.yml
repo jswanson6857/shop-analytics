@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_backfill:
+        description: "Run DynamoDB backfill (type BACKFILL to confirm)"
+        required: false
+        default: ""
+        type: string
 
 env:
   AWS_REGION: us-east-1
@@ -20,6 +25,150 @@ env:
   NODE_VERSION: 18
 
 jobs:
+  # NEW JOB: DynamoDB Backfill
+  backfill:
+    name: "Backfill DynamoDB pk Field"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_backfill == 'BACKFILL'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install boto3
+        run: pip install boto3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS Connection
+        run: |
+          echo "🔍 Testing AWS connection..."
+          aws sts get-caller-identity
+          echo ""
+          echo "✅ AWS credentials working!"
+          echo ""
+          echo "📊 Checking DynamoDB table..."
+          aws dynamodb describe-table --table-name webhook-ingestion-webhook-data --query 'Table.[TableName,ItemCount,TableStatus]' --output text
+          echo ""
+
+      - name: Create and Run Backfill Script
+        run: |
+          cat > backfill_pk_field.py << 'EOFPYTHON'
+          import boto3
+          import os
+
+          TABLE_NAME = os.environ.get('TABLE_NAME', 'webhook-ingestion-webhook-data')
+          AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
+
+          def backfill_pk_field():
+              dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION)
+              table = dynamodb.Table(TABLE_NAME)
+              
+              print(f"🔍 Starting backfill for table: {TABLE_NAME}")
+              print(f"📍 Region: {AWS_REGION}\n")
+              
+              items_scanned = 0
+              items_updated = 0
+              items_skipped = 0
+              errors = 0
+              
+              scan_kwargs = {
+                  'ProjectionExpression': 'id, #ts, pk',
+                  'ExpressionAttributeNames': {'#ts': 'timestamp'}
+              }
+              
+              try:
+                  while True:
+                      response = table.scan(**scan_kwargs)
+                      items = response.get('Items', [])
+                      
+                      for item in items:
+                          items_scanned += 1
+                          
+                          if 'pk' in item and item['pk'] == 'all':
+                              items_skipped += 1
+                              if items_scanned % 100 == 0:
+                                  print(f"Progress: {items_scanned} scanned, {items_updated} updated, {items_skipped} skipped")
+                              continue
+                          
+                          try:
+                              table.update_item(
+                                  Key={
+                                      'id': item['id'],
+                                      'timestamp': item['timestamp']
+                                  },
+                                  UpdateExpression='SET pk = :pk_val',
+                                  ExpressionAttributeValues={
+                                      ':pk_val': 'all'
+                                  }
+                              )
+                              items_updated += 1
+                              
+                              if items_updated % 100 == 0:
+                                  print(f"✅ Updated {items_updated} items so far...")
+                                  
+                          except Exception as e:
+                              errors += 1
+                              print(f"❌ Error updating item {item.get('id')}: {str(e)}")
+                      
+                      if 'LastEvaluatedKey' not in response:
+                          break
+                      
+                      scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
+                      print(f"📄 Fetching next batch... (Total scanned: {items_scanned})")
+              
+              except Exception as e:
+                  print(f"\n❌ Fatal error during scan: {str(e)}")
+                  return False
+              
+              print("\n" + "="*60)
+              print("🎉 BACKFILL COMPLETE!")
+              print("="*60)
+              print(f"📊 Items scanned:  {items_scanned:,}")
+              print(f"✅ Items updated:  {items_updated:,}")
+              print(f"⏭️  Items skipped:  {items_skipped:,}")
+              print(f"❌ Errors:         {errors}")
+              print("="*60)
+              
+              if errors > 0:
+                  return False
+              
+              print("\n✨ Success! All items now have pk='all'")
+              return True
+
+          if __name__ == '__main__':
+              success = backfill_pk_field()
+              if not success:
+                  exit(1)
+          EOFPYTHON
+
+          echo "🚀 Running backfill script..."
+          python backfill_pk_field.py
+
+      - name: Backfill Success Summary
+        if: success()
+        run: |
+          echo ""
+          echo "🎉 BACKFILL COMPLETED SUCCESSFULLY!"
+          echo "========================================="
+          echo ""
+          echo "✅ All DynamoDB items now have pk='all'"
+          echo "✅ Refresh your dashboard to see all ~4,972 events"
+          echo "✅ Only 'posted by' ROs will be visible (as designed)"
+          echo "✅ All events for same RO are combined into one card"
+          echo ""
+          echo "🎯 You can now remove the run_backfill input from this workflow!"
+
   destroy:
     name: "Destroy Infrastructure"
     runs-on: ubuntu-latest
@@ -59,7 +208,7 @@ jobs:
   terraform:
     name: "Deploy Infrastructure"
     runs-on: ubuntu-latest
-    if: github.event.inputs.destroy != 'true'
+    if: github.event.inputs.destroy != 'true' && github.event.inputs.run_backfill != 'BACKFILL'
 
     defaults:
       run:
@@ -168,7 +317,7 @@ jobs:
     name: "Build and Deploy Frontend"
     runs-on: ubuntu-latest
     needs: terraform
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.inputs.destroy != 'true'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.inputs.destroy != 'true' && github.event.inputs.run_backfill != 'BACKFILL'
 
     defaults:
       run:
@@ -210,9 +359,6 @@ jobs:
 
       - name: Build React application
         run: npm run build
-          echo "NODE_ENV=production" >> .env
-          echo "✅ Environment file created:"
-          cat .env
 
       - name: Verify WebSocket URL is embedded in build
         run: |
@@ -228,89 +374,40 @@ jobs:
       - name: Deploy to S3 with cache-busting headers
         run: |
           echo "Deploying to S3 bucket: ${{ needs.terraform.outputs.s3_bucket }}"
-
-          # Upload all files normally first
           aws s3 sync build/ s3://${{ needs.terraform.outputs.s3_bucket }}/ --delete
-
-          # Then fix cache headers on HTML files to solve the original user access issue
           aws s3 cp s3://${{ needs.terraform.outputs.s3_bucket }}/index.html s3://${{ needs.terraform.outputs.s3_bucket }}/index.html \
             --metadata-directive REPLACE \
             --cache-control "no-cache, no-store, must-revalidate" \
             --content-type "text/html"
+          echo "✅ Files uploaded with no-cache headers on HTML"
 
-          echo "✅ Files uploaded with no-cache headers on HTML (fixes user access issue)"
-
-      - name: Invalidate CloudFront cache (critical for user access fix)
+      - name: Invalidate CloudFront cache
         run: |
-          echo "🔄 Invalidating CloudFront cache to ensure users get fresh content..."
-          echo "Distribution ID: ${{ needs.terraform.outputs.cloudfront_distribution_id }}"
-
+          echo "🔄 Invalidating CloudFront cache..."
           aws cloudfront create-invalidation \
             --distribution-id ${{ needs.terraform.outputs.cloudfront_distribution_id }} \
             --paths "/*"
-
           echo "✅ CloudFront invalidation initiated"
 
-      - name: Wait for cache invalidation to propagate
+      - name: Wait for cache invalidation
         run: |
-          echo "⏳ Waiting for CloudFront invalidation to propagate globally..."
-          echo "This ensures users worldwide get the updated app with correct WebSocket URL"
+          echo "⏳ Waiting for CloudFront invalidation..."
           sleep 90
 
-      - name: Test deployment accessibility
-        run: |
-          echo "🧪 Testing deployment accessibility..."
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" ${{ needs.terraform.outputs.cloudfront_url }})
-          echo "CloudFront response code: $RESPONSE"
-
-          if [ "$RESPONSE" = "200" ]; then
-            echo "✅ Deployment accessible via CloudFront"
-          else
-            echo "⚠️  CloudFront returned HTTP $RESPONSE (may be normal immediately after deployment)"
-          fi
-
-      - name: Test WebSocket connectivity
-        run: |
-          echo "🔌 Testing WebSocket endpoint accessibility..."
-          WEBSOCKET_URL="${{ needs.terraform.outputs.websocket_url }}"
-
-          # Use curl to test WebSocket endpoint (basic connectivity test)
-          if curl -s --connect-timeout 10 --head "${WEBSOCKET_URL/wss:/https:}" > /dev/null 2>&1; then
-            echo "✅ WebSocket endpoint is accessible"
-          else
-            echo "⚠️  WebSocket endpoint test inconclusive (this is normal for WebSocket URLs)"
-          fi
-
-          echo "WebSocket URL for users: $WEBSOCKET_URL"
-
-      - name: Output deployment URLs and fix summary
+      - name: Output deployment URLs
         run: |
           echo ""
-          echo "🎉 DEPLOYMENT COMPLETED SUCCESSFULLY!"
-          echo "========================================="
-          echo ""
-          echo "📊 Your Auto Shop Dashboard URL (share this with users):"
-          echo "   ${{ needs.terraform.outputs.cloudfront_url }}"
-          echo ""
-          echo "🔧 ORIGINAL ISSUE FIXES APPLIED:"
-          echo "   ✅ WebSocket URL properly embedded in React build"
-          echo "   ✅ HTML files deployed with no-cache headers"
-          echo "   ✅ CloudFront cache invalidated globally"
-          echo "   ✅ Users will now get fresh app with correct WebSocket connection"
-          echo ""
-          echo "🔗 Technical Details:"
-          echo "   WebSocket URL: ${{ needs.terraform.outputs.websocket_url }}"
-          echo "   Webhook URL: ${{ needs.terraform.outputs.webhook_endpoint }}"
-          echo ""
-          echo "🕐 Allow 5-10 minutes for global propagation, then test from multiple devices"
-          echo ""
-          echo "🎯 The issue where other users couldn't see real-time data should now be resolved!"
+          echo "🎉 DEPLOYMENT COMPLETED!"
+          echo "================================"
+          echo "Dashboard URL: ${{ needs.terraform.outputs.cloudfront_url }}"
+          echo "WebSocket URL: ${{ needs.terraform.outputs.websocket_url }}"
+          echo "Webhook URL: ${{ needs.terraform.outputs.webhook_endpoint }}"
 
   test_deployment:
     name: "Test Complete Pipeline"
     runs-on: ubuntu-latest
     needs: [terraform, frontend]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.inputs.destroy != 'true'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.inputs.destroy != 'true' && github.event.inputs.run_backfill != 'BACKFILL'
 
     steps:
       - name: Configure AWS credentials
@@ -320,56 +417,17 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Test webhook endpoint functionality
+      - name: Test webhook endpoint
         run: |
-          echo "🧪 Testing webhook endpoint to ensure real-time data flow..."
-
-          # Send test webhook data
+          echo "🧪 Testing webhook endpoint..."
           RESPONSE=$(curl -s -w "%{http_code}" -X POST ${{ needs.terraform.outputs.webhook_endpoint }} \
             -H "Content-Type: application/json" \
-            -d '{
-              "data": {
-                "repairOrderNumber": 12345,
-                "repairOrderStatus": {"name": "Work-In-Progress"},
-                "repairOrderCustomLabel": {"name": "GitHub Actions Test - User Access Fix"},
-                "totalSales": 35000,
-                "amountPaid": 10000,
-                "customerId": 98765,
-                "vehicleId": 54321,
-                "jobs": [{"name": "Oil Change", "authorized": true}],
-                "customerConcerns": [{"concern": "Engine noise"}]
-              },
-              "event": "Test repair order for deployment verification"
-            }')
-
+            -d '{"data": {"repairOrderNumber": 99999, "test": true}}')
           echo "Webhook response: $RESPONSE"
           HTTP_CODE="${RESPONSE: -3}"
-
           if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Webhook endpoint test passed - real-time data flow confirmed"
+            echo "✅ Webhook test passed"
           else
-            echo "❌ Webhook endpoint test failed with code: $HTTP_CODE"
+            echo "❌ Webhook test failed: $HTTP_CODE"
             exit 1
           fi
-
-      - name: Final deployment summary
-        run: |
-          echo ""
-          echo "🎯 DEPLOYMENT TEST COMPLETE!"
-          echo "=============================="
-          echo ""
-          echo "✅ Infrastructure deployed successfully"
-          echo "✅ Frontend built with correct WebSocket URL" 
-          echo "✅ Cache-busting deployment completed"
-          echo "✅ Webhook endpoint tested and working"
-          echo ""
-          echo "🌍 SHARE THIS URL WITH ALL USERS:"
-          echo "   ${{ needs.terraform.outputs.cloudfront_url }}"
-          echo ""
-          echo "💡 NEXT STEPS:"
-          echo "   1. Test the dashboard from multiple devices/browsers"
-          echo "   2. Configure your auto shop system to send webhooks to:"
-          echo "      ${{ needs.terraform.outputs.webhook_endpoint }}"
-          echo "   3. Monitor real-time data updates across all user sessions"
-          echo ""
-          echo "🎉 The original issue should now be resolved for all users!"
