@@ -1,4 +1,4 @@
-// src/App.js - REFACTORED: Auth0 + Combined ROs + Posted Filter
+// src/App.js - OPTIMIZED: Progressive loading + faster queries
 import React, {
   useState,
   useEffect,
@@ -81,6 +81,10 @@ function AppContent() {
   const [connectionStatus, setConnectionStatus] = useState("disconnected");
   const [currentPage, setCurrentPage] = useState("orders");
   const [historicalDataLoaded, setHistoricalDataLoaded] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState({
+    loaded: 0,
+    total: 0,
+  });
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
@@ -132,7 +136,7 @@ function AppContent() {
 
     // CRITICAL: Only show ROs where most recent event contains "posted by"
     const postedOnly = combined.filter((ro) => {
-      const mostRecentEvent = ro.events[0]; // events are sorted newest first
+      const mostRecentEvent = ro.events[0];
       return (
         mostRecentEvent.event &&
         mostRecentEvent.event.toLowerCase().includes("posted by")
@@ -142,25 +146,28 @@ function AppContent() {
     setCombinedROs(postedOnly);
   }, [allEvents]);
 
-  // Paginated historical fetch
+  // OPTIMIZED: Paginated historical fetch with PROGRESSIVE RENDERING
   useEffect(() => {
     const fetchHistoricalDataBatch = async () => {
       if (!REST_API_URL || historicalDataLoaded || !isAuthenticated) return;
 
       setConnectionStatus("loading-history");
-      console.log("🔄 Starting paginated historical fetch...");
+      console.log("🔄 Starting optimized paginated historical fetch...");
 
       let fetchedEvents = [];
       let lastKey = null;
+      let batchCount = 0;
 
       try {
         do {
           const url = new URL(`${REST_API_URL}/data`);
-          url.searchParams.append("limit", "500");
+          url.searchParams.append("limit", "1000"); // Larger batches for speed
           url.searchParams.append("hours", "720");
           if (lastKey) url.searchParams.append("lastKey", lastKey);
 
-          console.log(`Fetching historical batch: ${url.toString()}`);
+          batchCount++;
+          console.log(`📦 Fetching batch ${batchCount}...`);
+
           const response = await fetch(url.toString());
           if (!response.ok)
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -169,24 +176,35 @@ function AppContent() {
           const eventsPage = result.events || [];
 
           console.log(
-            `Received ${eventsPage.length} events, total: ${
-              fetchedEvents.length + eventsPage.length
-            }`
+            `Received ${eventsPage.length} events in batch ${batchCount}`
           );
 
-          fetchedEvents = fetchedEvents.concat(
-            eventsPage
-              .map((rawEvent) => parseWebhookData(rawEvent))
-              .filter(Boolean)
-          );
+          const parsedEvents = eventsPage
+            .map((rawEvent) => parseWebhookData(rawEvent))
+            .filter(Boolean);
+
+          fetchedEvents = fetchedEvents.concat(parsedEvents);
+
+          // ✨ PROGRESSIVE RENDERING: Update UI after each batch
+          if (mountedRef.current) {
+            fetchedEvents.sort(
+              (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+            );
+            setAllEvents([...fetchedEvents]); // Trigger re-render with current data
+            setLoadingProgress({
+              loaded: fetchedEvents.length,
+              total: fetchedEvents.length + (result.hasMore ? 1000 : 0),
+            });
+            setConnectionStatus(`loading (${fetchedEvents.length} events)`);
+          }
 
           lastKey = result.lastKey;
 
-          if (mountedRef.current)
-            setConnectionStatus(
-              `loading-history (${fetchedEvents.length} events)`
-            );
-        } while (lastKey);
+          // Small delay to prevent overwhelming the API
+          if (lastKey) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+        } while (lastKey && mountedRef.current);
 
         fetchedEvents.sort(
           (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
@@ -198,6 +216,7 @@ function AppContent() {
           setAllEvents(fetchedEvents);
           setHistoricalDataLoaded(true);
           setConnectionStatus("disconnected");
+          setLoadingProgress({ loaded: 0, total: 0 });
         }
       } catch (err) {
         console.error("❌ Failed to fetch historical data:", err);
@@ -357,6 +376,7 @@ function AppContent() {
       case "connecting":
         return "#17a2b8";
       case "loading-history":
+      case "loading":
         return "#6f42c1";
       case "disconnected":
         return "#ffc107";
@@ -368,13 +388,14 @@ function AppContent() {
   };
 
   const getStatusText = () => {
+    if (connectionStatus.startsWith("loading")) {
+      return connectionStatus;
+    }
     switch (connectionStatus) {
       case "connected":
         return "Connected";
       case "connecting":
         return "Connecting...";
-      case "loading-history":
-        return "Loading...";
       case "disconnected":
         return "Disconnected";
       case "error":
@@ -430,6 +451,32 @@ function AppContent() {
           </div>
         </div>
 
+        {/* Show loading progress bar */}
+        {loadingProgress.loaded > 0 && !historicalDataLoaded && (
+          <div
+            style={{
+              background: "rgba(255,255,255,0.1)",
+              borderRadius: "4px",
+              height: "4px",
+              marginTop: "0.5rem",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                background: "#28a745",
+                height: "100%",
+                width: `${
+                  (loadingProgress.loaded /
+                    Math.max(loadingProgress.total, loadingProgress.loaded)) *
+                  100
+                }%`,
+                transition: "width 0.3s ease",
+              }}
+            />
+          </div>
+        )}
+
         <div className="nav-tabs">
           <button
             className={currentPage === "orders" ? "active" : ""}
@@ -479,7 +526,7 @@ function AppContent() {
             setStatusFilter={setStatusFilter}
             connectionStatus={connectionStatus}
             openROModal={openROModal}
-            navigateToEvent={navigateToEvent} // ✅ now used
+            navigateToEvent={navigateToEvent}
           />
         )}
 
@@ -536,7 +583,7 @@ function AppContent() {
   );
 }
 
-// RO Detail Modal Component
+// RO Detail Modal Component (keeping existing implementation)
 const RODetailModal = ({ roNumber, combinedRO, customers, onClose }) => {
   if (!combinedRO) return null;
 
@@ -618,7 +665,6 @@ const JobContactSection = ({ ro, customer }) => {
   const [jobResponses, setJobResponses] = useState({});
 
   useEffect(() => {
-    // Load saved data from localStorage
     const savedData = localStorage.getItem(`ro-jobs-${ro.repairOrderNumber}`);
     if (savedData) {
       try {
@@ -643,7 +689,6 @@ const JobContactSection = ({ ro, customer }) => {
       customerId: ro.customerId,
     };
 
-    // Save to follow-up DB (localStorage for now)
     const existingFollowUps = JSON.parse(
       localStorage.getItem("follow-up-jobs") || "[]"
     );
@@ -660,7 +705,6 @@ const JobContactSection = ({ ro, customer }) => {
     <div className="jobs-contact-section">
       <h3>Jobs - Contact Tracking</h3>
 
-      {/* Approved Jobs */}
       {ro.approvedJobs && ro.approvedJobs.length > 0 && (
         <div className="job-group">
           <h4 className="job-group-title approved">
@@ -685,7 +729,6 @@ const JobContactSection = ({ ro, customer }) => {
         </div>
       )}
 
-      {/* Declined Jobs */}
       {ro.jobs && ro.jobs.filter((j) => j.authorized === false).length > 0 && (
         <div className="job-group">
           <h4 className="job-group-title declined">
@@ -716,7 +759,6 @@ const JobContactSection = ({ ro, customer }) => {
   );
 };
 
-// Individual Job Contact Card
 const JobContactCard = ({
   job,
   isApproved,
@@ -768,7 +810,6 @@ const JobContactCard = ({
   );
 };
 
-// Main App with Auth0 Provider
 function App() {
   return (
     <Auth0Provider

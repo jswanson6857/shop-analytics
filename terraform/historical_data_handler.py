@@ -1,15 +1,13 @@
-# terraform/historical_data_handler.py - UPDATED: Uses pk field for queries
 import os
 import json
 import boto3
+import base64
 from datetime import datetime, timedelta
 from decimal import Decimal
-from boto3.dynamodb.conditions import Key
-import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 dynamodb = boto3.resource('dynamodb')
-table_name = os.environ.get('DYNAMODB_TABLE_NAME', 'webhook-ingestion-webhook-data')
-table = dynamodb.Table(table_name)
+table = dynamodb.Table(os.environ.get('DYNAMODB_TABLE_NAME', 'webhook-ingestion-webhook-data'))
 
 class DecimalEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -25,89 +23,62 @@ def get_cors_headers():
         'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'
     }
 
+def parallel_scan(segment, total_segments, filter_expr=None, projection=None):
+    kwargs = {'Segment': segment, 'TotalSegments': total_segments}
+    if filter_expr:
+        kwargs['FilterExpression'] = filter_expr
+    if projection:
+        kwargs['ProjectionExpression'] = projection
+
+    items = []
+    response = table.scan(**kwargs)
+    items.extend(response.get('Items', []))
+
+    while 'LastEvaluatedKey' in response:
+        response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'], **kwargs)
+        items.extend(response.get('Items', []))
+    return items
+
 def lambda_handler(event, context):
-    """
-    Fetch ALL historical repair order data with pagination support
-    Uses the all-timestamp-index GSI
-    NO time limits - returns everything in DynamoDB
-    """
     try:
-        # Handle OPTIONS for CORS
         if event.get('httpMethod') == 'OPTIONS':
-            return {
-                'statusCode': 200,
-                'headers': get_cors_headers(),
-                'body': json.dumps({'message': 'CORS preflight'})
-            }
+            return {'statusCode': 200, 'headers': get_cors_headers(), 'body': json.dumps({'message': 'CORS preflight'})}
 
-        # Parse query parameters
-        query_params = event.get('queryStringParameters') or {}
-        
-        # Pagination support
-        limit = min(int(query_params.get('limit', 500)), 1000)  # Allow up to 1000 per batch
-        last_key_encoded = query_params.get('lastKey')
-        
-        # Optional time range (but default is ALL TIME)
-        hours = query_params.get('hours')  # None = no time filter
-        
-        # Build query
+        params = event.get('queryStringParameters') or {}
+        hours = params.get('hours')
+        total_segments = int(params.get('segments', 8))  # number of parallel scans (default: 8)
+        projection = params.get('fields')  # e.g., "id,timestamp,status"
+
+        # Optional time filter
+        filter_expr = None
         if hours:
-            # Time-filtered query
             start_time = (datetime.utcnow() - timedelta(hours=int(hours))).isoformat()
-            key_condition = Key('pk').eq('all') & Key('timestamp').gte(start_time)
-        else:
-            # NO TIME FILTER - get everything
-            key_condition = Key('pk').eq('all')
-        
-        query_kwargs = {
-            'IndexName': 'all-timestamp-index',
-            'KeyConditionExpression': key_condition,
-            'Limit': limit,
-            'ScanIndexForward': False  # Newest first
-        }
+            from boto3.dynamodb.conditions import Attr
+            filter_expr = Attr('timestamp').gte(start_time)
 
-        # Handle pagination
-        if last_key_encoded:
-            try:
-                last_key = json.loads(base64.b64decode(last_key_encoded).decode('utf-8'))
-                query_kwargs['ExclusiveStartKey'] = last_key
-            except Exception as e:
-                print(f"Error decoding lastKey: {str(e)}")
-                # Continue without lastKey if decoding fails
+        # Run parallel scans
+        all_items = []
+        with ThreadPoolExecutor(max_workers=total_segments) as executor:
+            futures = [executor.submit(parallel_scan, seg, total_segments, filter_expr, projection) for seg in range(total_segments)]
+            for f in as_completed(futures):
+                all_items.extend(f.result())
 
-        # Execute query
-        response = table.query(**query_kwargs)
-        items = response.get('Items', [])
+        print(f"✅ Retrieved {len(all_items)} total items across {total_segments} segments")
 
-        # Encode next pagination key
-        next_key = response.get('LastEvaluatedKey')
-        encoded_next_key = None
-        if next_key:
-            encoded_next_key = base64.b64encode(
-                json.dumps(next_key, cls=DecimalEncoder).encode('utf-8')
-            ).decode('utf-8')
-
-        print(f"📊 Returned {len(items)} items, hasMore: {next_key is not None}")
-
-        # Return results
         return {
             'statusCode': 200,
             'headers': get_cors_headers(),
             'body': json.dumps({
-                'events': items,
-                'lastKey': encoded_next_key,
-                'count': len(items),
-                'hasMore': next_key is not None
+                'events': all_items,
+                'count': len(all_items),
+                'hasMore': False
             }, cls=DecimalEncoder)
         }
 
     except Exception as e:
-        print(f"Error fetching historical data: {str(e)}")
+        print(f"Error fetching all data: {e}")
         return {
             'statusCode': 500,
             'headers': get_cors_headers(),
-            'body': json.dumps({
-                'error': 'Internal server error',
-                'message': str(e)
-            })
+            'body': json.dumps({'error': 'Internal server error', 'message': str(e)})
         }
