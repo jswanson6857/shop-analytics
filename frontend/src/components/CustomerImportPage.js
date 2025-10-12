@@ -1,10 +1,11 @@
-// src/components/CustomerImportPage.js - FIXED: Accepts ANY CSV format, deletable rows
+// src/components/CustomerImportPage.js - ULTRA-RESILIENT: Handles ANY CSV format
 import React, { useState } from "react";
 
 const CustomerImportPage = ({ customers, updateCustomers }) => {
   const [importStatus, setImportStatus] = useState("");
   const [importedCount, setImportedCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
+  const [importWarnings, setImportWarnings] = useState([]);
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
@@ -19,47 +20,126 @@ const CustomerImportPage = ({ customers, updateCustomers }) => {
 
         if (lines.length === 0) {
           setImportStatus("error");
-          alert("Empty CSV file");
+          alert("❌ Empty CSV file");
           return;
         }
 
-        const header = lines[0]
-          .split(",")
-          .map((h) => h.trim().toLowerCase().replace(/['"]/g, ""));
-
-        console.log("📋 CSV Headers found:", header);
-
-        // FLEXIBLE: Find customer ID column (try multiple variations)
-        const customerIdIndex = header.findIndex(
-          (h) => h.includes("customer") || h.includes("client") || h === "id"
+        // Parse header with aggressive cleaning
+        const rawHeader = lines[0];
+        const header = rawHeader.split(",").map(
+          (h) =>
+            h
+              .trim()
+              .toLowerCase()
+              .replace(/['"]/g, "")
+              .replace(/\s+/g, "_") // Convert spaces to underscores
+              .replace(/[^\w_]/g, "") // Remove special characters
         );
 
-        // FLEXIBLE: Find first name column
-        const firstNameIndex = header.findIndex(
-          (h) => h.includes("first") || h === "fname"
+        console.log("📋 Cleaned CSV Headers:", header);
+        console.log("📋 Original Headers:", rawHeader.split(","));
+
+        // ULTRA-FLEXIBLE: Try MANY variations to find customer ID
+        const customerIdPatterns = [
+          "customer_id",
+          "customerid",
+          "customer",
+          "client_id",
+          "clientid",
+          "client",
+          "id",
+          "cust_id",
+          "custid",
+          "account_id",
+          "accountid",
+          "account",
+          "member_id",
+          "memberid",
+          "customer_number",
+          "customernumber",
+          "client_number",
+          "account_number",
+        ];
+
+        const customerIdIndex = header.findIndex((h) =>
+          customerIdPatterns.some(
+            (pattern) => h.includes(pattern) || pattern.includes(h)
+          )
         );
 
-        // FLEXIBLE: Find last name column
-        const lastNameIndex = header.findIndex(
-          (h) => h.includes("last") || h === "lname" || h.includes("surname")
+        // ULTRA-FLEXIBLE: Try MANY variations to find name columns
+        const firstNamePatterns = [
+          "first_name",
+          "firstname",
+          "first",
+          "fname",
+          "given_name",
+          "givenname",
+        ];
+
+        const lastNamePatterns = [
+          "last_name",
+          "lastname",
+          "last",
+          "lname",
+          "surname",
+          "family_name",
+          "familyname",
+        ];
+
+        const fullNamePatterns = [
+          "name",
+          "full_name",
+          "fullname",
+          "customer_name",
+          "customername",
+          "client_name",
+          "clientname",
+        ];
+
+        const firstNameIndex = header.findIndex((h) =>
+          firstNamePatterns.some(
+            (pattern) => h === pattern || h.includes(pattern)
+          )
         );
 
-        // FLEXIBLE: Find full name column
+        const lastNameIndex = header.findIndex((h) =>
+          lastNamePatterns.some(
+            (pattern) => h === pattern || h.includes(pattern)
+          )
+        );
+
         const fullNameIndex = header.findIndex(
           (h) =>
-            h.includes("name") && !h.includes("first") && !h.includes("last")
+            fullNamePatterns.some(
+              (pattern) => h === pattern || h.includes(pattern)
+            ) &&
+            !firstNamePatterns.some((pattern) => h.includes(pattern)) &&
+            !lastNamePatterns.some((pattern) => h.includes(pattern))
         );
 
-        // FLEXIBLE: Find phone column
-        const phoneIndex = header.findIndex(
-          (h) =>
-            h.includes("phone") ||
-            h.includes("mobile") ||
-            h.includes("cell") ||
-            h.includes("tel")
+        // ULTRA-FLEXIBLE: Try MANY variations to find phone
+        const phonePatterns = [
+          "phone",
+          "mobile",
+          "cell",
+          "telephone",
+          "tel",
+          "contact",
+          "phone_number",
+          "phonenumber",
+          "mobile_number",
+          "cell_number",
+          "contact_number",
+        ];
+
+        const phoneIndex = header.findIndex((h) =>
+          phonePatterns.some(
+            (pattern) => h.includes(pattern) || pattern.includes(h)
+          )
         );
 
-        console.log("🔍 Column mapping:", {
+        console.log("🔍 Column Detection Results:", {
           customerIdIndex,
           firstNameIndex,
           lastNameIndex,
@@ -68,84 +148,161 @@ const CustomerImportPage = ({ customers, updateCustomers }) => {
           headers: header,
         });
 
-        // Only require customer ID - everything else is optional
+        // ULTRA-FALLBACK: If no customer ID found, always auto-generate IDs
+        let useAutoGeneratedIds = false;
+        let effectiveCustomerIdIndex = customerIdIndex;
+
         if (customerIdIndex === -1) {
-          setImportStatus("error");
-          alert(
-            "⚠️ Could not find Customer ID column.\n\n" +
-              "I'm looking for ANY column with: 'customer', 'client', or 'id'\n\n" +
-              "Your CSV columns are:\n" +
-              header.join(", ") +
-              "\n\n" +
-              "Please make sure you have a customer ID column!"
+          // Just auto-generate IDs - no need to bother the user
+          useAutoGeneratedIds = true;
+          console.log(
+            "⚠️ No customer ID column found - will auto-generate IDs"
           );
-          return;
         }
 
         const newCustomers = { ...customers };
         let count = 0;
-        const errors = [];
+        const warnings = [];
+        let nextAutoId = Math.max(0, ...Object.keys(customers).map(Number)) + 1;
 
+        // Process each row with ULTRA-RESILIENT parsing
         for (let i = 1; i < lines.length; i++) {
-          const values =
-            lines[i]
-              .match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)
-              ?.map((v) => v.replace(/^"|"$/g, "").trim()) || [];
+          try {
+            // Handle quoted CSV values properly
+            const values = [];
+            let currentValue = "";
+            let insideQuotes = false;
 
-          if (values.length < 2) continue;
+            for (let char of lines[i]) {
+              if (char === '"') {
+                insideQuotes = !insideQuotes;
+              } else if (char === "," && !insideQuotes) {
+                values.push(currentValue.trim());
+                currentValue = "";
+              } else {
+                currentValue += char;
+              }
+            }
+            values.push(currentValue.trim()); // Add last value
 
-          const customerId = values[customerIdIndex]?.trim();
-          if (!customerId) {
-            errors.push(`Row ${i + 1}: Missing customer ID`);
-            continue;
+            // Remove quotes from values
+            const cleanValues = values.map((v) =>
+              v.replace(/^"|"$/g, "").trim()
+            );
+
+            if (cleanValues.length < 1) continue;
+
+            // Get or generate customer ID
+            let customerId;
+            if (useAutoGeneratedIds) {
+              customerId = String(nextAutoId++);
+            } else if (effectiveCustomerIdIndex !== -1) {
+              customerId = cleanValues[effectiveCustomerIdIndex]?.trim();
+              if (!customerId) {
+                // If the ID column is empty, auto-generate
+                customerId = String(nextAutoId++);
+              }
+            } else {
+              customerId = String(nextAutoId++);
+            }
+
+            // Extract name with maximum flexibility
+            let name = "";
+            if (firstNameIndex !== -1 && lastNameIndex !== -1) {
+              const firstName = cleanValues[firstNameIndex]?.trim() || "";
+              const lastName = cleanValues[lastNameIndex]?.trim() || "";
+              name = `${firstName} ${lastName}`.trim();
+            } else if (fullNameIndex !== -1) {
+              name = cleanValues[fullNameIndex]?.trim() || "";
+            } else {
+              // FALLBACK: Look for ANY column that might be a name
+              for (let idx = 0; idx < cleanValues.length; idx++) {
+                if (
+                  idx !== effectiveCustomerIdIndex &&
+                  cleanValues[idx]?.length > 0
+                ) {
+                  // Check if it looks like a name (contains letters, not all numbers)
+                  if (
+                    /[a-zA-Z]/.test(cleanValues[idx]) &&
+                    !/^\d+$/.test(cleanValues[idx])
+                  ) {
+                    name = cleanValues[idx].trim();
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (!name) {
+              name = `Customer ${customerId}`;
+            }
+
+            // Extract phone with maximum flexibility
+            let phone = "N/A";
+            if (phoneIndex !== -1) {
+              phone = cleanValues[phoneIndex]?.trim() || "N/A";
+            } else {
+              // FALLBACK: Look for anything that looks like a phone number
+              for (const value of cleanValues) {
+                if (/[\d().\-\s]{7,}/.test(value)) {
+                  phone = value.trim();
+                  break;
+                }
+              }
+            }
+
+            newCustomers[customerId] = {
+              name: name,
+              phone: phone,
+              importedAt: new Date().toISOString(),
+            };
+            count++;
+          } catch (rowError) {
+            warnings.push(`Row ${i + 1}: ${rowError.message}`);
+            console.error(`Error processing row ${i + 1}:`, rowError);
           }
-
-          let name = "";
-          if (firstNameIndex !== -1 && lastNameIndex !== -1) {
-            const firstName = values[firstNameIndex]?.trim() || "";
-            const lastName = values[lastNameIndex]?.trim() || "";
-            name = `${firstName} ${lastName}`.trim();
-          } else if (fullNameIndex !== -1) {
-            name = values[fullNameIndex]?.trim() || "";
-          }
-
-          if (!name) {
-            name = `Customer ${customerId}`;
-          }
-
-          const phone =
-            phoneIndex !== -1 ? values[phoneIndex]?.trim() || "N/A" : "N/A";
-
-          newCustomers[customerId] = {
-            name: name,
-            phone: phone,
-            importedAt: new Date().toISOString(),
-          };
-          count++;
         }
 
-        if (errors.length > 0 && errors.length < 10) {
-          console.warn("⚠️ Import warnings:", errors);
+        if (count === 0) {
+          setImportStatus("error");
+          alert(
+            "❌ No customers could be imported.\n\n" +
+              "Please check:\n" +
+              "1. File has data rows (not just headers)\n" +
+              "2. File is a valid CSV format\n" +
+              "3. Columns have readable data"
+          );
+          return;
         }
 
         updateCustomers(newCustomers);
         setImportedCount(count);
+        setImportWarnings(warnings);
         setImportStatus("success");
 
         console.log(`✅ Successfully imported ${count} customers`);
+        if (warnings.length > 0) {
+          console.warn(`⚠️ Import completed with ${warnings.length} warnings`);
+        }
       } catch (error) {
         console.error("Error parsing CSV:", error);
         setImportStatus("error");
         alert(
-          "Failed to parse CSV file. Please ensure it's a valid CSV format.\n\n" +
-            error.message
+          "❌ Failed to parse CSV file.\n\n" +
+            "Error: " +
+            error.message +
+            "\n\n" +
+            "Please ensure:\n" +
+            "1. File is a valid CSV format\n" +
+            "2. File is not corrupted\n" +
+            "3. File uses standard CSV delimiters (commas)"
         );
       }
     };
 
     reader.onerror = () => {
       setImportStatus("error");
-      alert("Failed to read file");
+      alert("❌ Failed to read file");
     };
 
     reader.readAsText(file);
@@ -180,15 +337,16 @@ const CustomerImportPage = ({ customers, updateCustomers }) => {
   const handleClearAll = () => {
     if (
       window.confirm(
-        "Are you sure you want to delete ALL customer data?\n\n" +
+        "⚠️ Are you sure you want to delete ALL customer data?\n\n" +
           `This will remove ${
             Object.keys(customers).length
-          } customers and cannot be undone.`
+          } customers and CANNOT be undone.`
       )
     ) {
       updateCustomers({});
       setImportStatus("");
       setImportedCount(0);
+      setImportWarnings([]);
     }
   };
 
@@ -209,8 +367,8 @@ const CustomerImportPage = ({ customers, updateCustomers }) => {
       <div className="page-header">
         <h2>📋 Import Customer Data</h2>
         <p className="page-description">
-          Import customer information from ANY CSV file format. The system will
-          automatically detect customer ID, name, and phone columns.
+          ✨ <strong>Import ANY CSV format!</strong> The system automatically
+          detects columns - no formatting needed!
         </p>
       </div>
 
@@ -235,47 +393,71 @@ const CustomerImportPage = ({ customers, updateCustomers }) => {
           <h3>📥 Upload Customer CSV</h3>
 
           <div className="csv-requirements">
-            <h4>✨ Flexible Format - Accepts ANY CSV!</h4>
-            <p style={{ marginBottom: "1rem" }}>
-              The system will automatically detect columns. Your CSV should
-              have:
+            <h4>✨ Ultra-Flexible CSV Import - Works with ANY format!</h4>
+            <p style={{ marginBottom: "1rem", fontWeight: 600 }}>
+              🎯 Just upload your CSV - the system will figure it out
+              automatically!
             </p>
             <ul>
               <li>
-                <strong>Customer ID column</strong> - Any of: customer_id,
-                customerid, customer number, id
+                <strong>Customer ID:</strong> Detects columns with: id,
+                customer, client, account, etc.
+                <br />
+                <em
+                  style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}
+                >
+                  → If not found, IDs are auto-generated automatically (1, 2,
+                  3...)
+                </em>
               </li>
               <li>
-                <strong>Name columns</strong> - Either:
-                <ul style={{ marginLeft: "1.5rem", marginTop: "0.5rem" }}>
-                  <li>first_name + last_name (preferred)</li>
-                  <li>OR name / full_name / customer_name</li>
-                </ul>
+                <strong>Name:</strong> Detects first/last name OR full name
+                columns
+                <br />
+                <em
+                  style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}
+                >
+                  → Handles: first_name, lastName, name, full_name,
+                  customer_name, etc.
+                </em>
               </li>
               <li>
-                <strong>Phone column</strong> - Any of: phone, mobile, cell,
-                telephone, contact
+                <strong>Phone:</strong> Detects any phone-related column
+                <br />
+                <em
+                  style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}
+                >
+                  → Handles: phone, mobile, cell, telephone, contact, etc.
+                </em>
               </li>
               <li>
-                <strong>Extra columns are OK</strong> - They'll be ignored
-                automatically
+                <strong>Missing columns?</strong> No problem - will use best
+                available data
+              </li>
+              <li>
+                <strong>Extra columns?</strong> Ignored automatically
               </li>
             </ul>
             <p
               style={{
                 marginTop: "1rem",
+                padding: "0.75rem",
+                background: "#d4edda",
+                borderLeft: "4px solid #28a745",
+                borderRadius: "4px",
                 fontSize: "0.9rem",
-                color: "var(--text-secondary)",
+                color: "#155724",
               }}
             >
-              💡 <strong>Tip:</strong> Export directly from your shop management
-              system - no need to format!
+              💡 <strong>Pro Tip:</strong> Export from ANY system - no
+              formatting needed! Even if your CSV has no ID column, we'll
+              generate IDs for you automatically.
             </p>
           </div>
 
           <div className="import-actions">
             <button className="template-btn" onClick={handleDownloadTemplate}>
-              📄 Download Template CSV
+              📄 Download Example Template
             </button>
 
             <div className="file-upload-wrapper">
@@ -294,12 +476,34 @@ const CustomerImportPage = ({ customers, updateCustomers }) => {
           {importStatus === "success" && (
             <div className="import-status success">
               ✅ Successfully imported {importedCount} customers!
+              {importWarnings.length > 0 && (
+                <details style={{ marginTop: "0.5rem" }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+                    ⚠️ View {importWarnings.length} warnings
+                  </summary>
+                  <ul style={{ marginTop: "0.5rem", paddingLeft: "1.5rem" }}>
+                    {importWarnings.slice(0, 10).map((warning, idx) => (
+                      <li
+                        key={idx}
+                        style={{ fontSize: "0.85rem", marginBottom: "0.25rem" }}
+                      >
+                        {warning}
+                      </li>
+                    ))}
+                    {importWarnings.length > 10 && (
+                      <li style={{ fontSize: "0.85rem", fontStyle: "italic" }}>
+                        ... and {importWarnings.length - 10} more
+                      </li>
+                    )}
+                  </ul>
+                </details>
+              )}
             </div>
           )}
 
           {importStatus === "error" && (
             <div className="import-status error">
-              ❌ Import failed. Check browser console for details.
+              ❌ Import failed. Check the error message above.
             </div>
           )}
         </div>
