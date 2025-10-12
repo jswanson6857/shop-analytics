@@ -27,8 +27,9 @@ def get_cors_headers():
 
 def lambda_handler(event, context):
     """
-    Fetch historical repair order data with pagination support
-    Uses the all-timestamp-index GSI for efficient time-based queries
+    Fetch ALL historical repair order data with pagination support
+    Uses the all-timestamp-index GSI
+    NO time limits - returns everything in DynamoDB
     """
     try:
         # Handle OPTIONS for CORS
@@ -43,15 +44,20 @@ def lambda_handler(event, context):
         query_params = event.get('queryStringParameters') or {}
         
         # Pagination support
-        limit = min(int(query_params.get('limit', 500)), 500)
+        limit = min(int(query_params.get('limit', 500)), 1000)  # Allow up to 1000 per batch
         last_key_encoded = query_params.get('lastKey')
         
-        # Time range (default: last 30 days)
-        hours = int(query_params.get('hours', 720))  # 720 hours = 30 days
-        start_time = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
-
+        # Optional time range (but default is ALL TIME)
+        hours = query_params.get('hours')  # None = no time filter
+        
         # Build query
-        key_condition = Key('pk').eq('all') & Key('timestamp').gte(start_time)
+        if hours:
+            # Time-filtered query
+            start_time = (datetime.utcnow() - timedelta(hours=int(hours))).isoformat()
+            key_condition = Key('pk').eq('all') & Key('timestamp').gte(start_time)
+        else:
+            # NO TIME FILTER - get everything
+            key_condition = Key('pk').eq('all')
         
         query_kwargs = {
             'IndexName': 'all-timestamp-index',
@@ -80,6 +86,8 @@ def lambda_handler(event, context):
             encoded_next_key = base64.b64encode(
                 json.dumps(next_key, cls=DecimalEncoder).encode('utf-8')
             ).decode('utf-8')
+
+        print(f"📊 Returned {len(items)} items, hasMore: {next_key is not None}")
 
         # Return results
         return {

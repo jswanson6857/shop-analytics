@@ -26,23 +26,23 @@
   --button-glow: rgba(0,0,0,0.06);
 }
 
-/* Dark Mode Variables */
+/* Dark Mode Variables - FIXED: High Contrast for Accessibility */
 .dark-mode {
-  --bg-primary: #1a1a2e;
-  --bg-secondary: #16213e;
-  --bg-tertiary: #0f1729;
-  --text-primary: #e0e0e0;
-  --text-secondary: #b0b0b0;
-  --text-tertiary: #808080;
-  --border-color: #2a3f5f;
-  --shadow: rgba(0,0,0,0.3);
-  --shadow-hover: rgba(0,0,0,0.5);
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #1c2128;
+  --text-primary: #f0f6fc;
+  --text-secondary: #c9d1d9;
+  --text-tertiary: #8b949e;
+  --border-color: #30363d;
+  --shadow: rgba(0,0,0,0.4);
+  --shadow-hover: rgba(0,0,0,0.6);
   --header-gradient-start: #1e3a8a;
   --header-gradient-end: #1e3a8a;
-  --card-bg: #16213e;
-  --input-bg: #1a2942;
-  --badge-bg: #2a3f5f;
-  --button-glow: rgba(64,93,230,0.12);
+  --card-bg: #161b22;
+  --input-bg: #0d1117;
+  --badge-bg: #21262d;
+  --button-glow: rgba(64,93,230,0.15);
 }
 
 body {
@@ -1086,6 +1086,61 @@ body {
 .page-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Customer Import Page - Table Styles */
+.customer-table-wrapper {
+  max-height: 500px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.customer-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.customer-table thead {
+  position: sticky;
+  top: 0;
+  background: var(--bg-tertiary);
+  z-index: 1;
+}
+
+.customer-table thead th {
+  border-bottom: 2px solid var(--border-color);
+}
+
+.customer-table tbody tr {
+  transition: background-color 0.2s ease;
+}
+
+.customer-table tbody tr:hover {
+  background: var(--bg-tertiary);
+}
+
+.delete-customer-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.delete-customer-btn:hover {
+  background: #dc3545;
+  border-color: #dc3545;
+  color: white;
+  transform: scale(1.1);
+}
+
+.dark-mode .customer-table tbody tr:hover {
+  background: #1c2128;
 }
 
 /* Responsive Design */
