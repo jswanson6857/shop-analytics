@@ -54,16 +54,24 @@ jobs:
       - name: Terraform Init
         id: init
         run: terraform init
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       
       - name: Terraform Plan
         id: plan
         if: github.event_name == 'pull_request'
         run: terraform plan -no-color -input=false
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           TF_VAR_tekmetric_client_id: ${{ secrets.TEKMETRIC_CLIENT_ID }}
           TF_VAR_tekmetric_client_secret: ${{ secrets.TEKMETRIC_CLIENT_SECRET }}
           TF_VAR_tekmetric_shop_id: ${{ secrets.TEKMETRIC_SHOP_ID }}
@@ -109,6 +117,8 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -input=false
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           TF_VAR_tekmetric_client_id: ${{ secrets.TEKMETRIC_CLIENT_ID }}
           TF_VAR_tekmetric_client_secret: ${{ secrets.TEKMETRIC_CLIENT_SECRET }}
           TF_VAR_tekmetric_shop_id: ${{ secrets.TEKMETRIC_SHOP_ID }}

@@ -5,43 +5,43 @@
 # Package Lambda functions
 data "archive_file" "sync_tekmetric" {
   type        = "zip"
-  source_dir  = "${path.module}/../lambdas/sync-tekmetric"
+  source_dir  = "${path.module}/../../../lambdas/sync-tekmetric"
   output_path = "${path.module}/.terraform/lambda-packages/sync-tekmetric.zip"
 }
 
 data "archive_file" "api_ros" {
   type        = "zip"
-  source_dir  = "${path.module}/../lambdas/api-ros"
+  source_dir  = "${path.module}/../../../lambdas/api-ros"
   output_path = "${path.module}/.terraform/lambda-packages/api-ros.zip"
 }
 
 data "archive_file" "api_contact" {
   type        = "zip"
-  source_dir  = "${path.module}/../lambdas/api-contact"
+  source_dir  = "${path.module}/../../../lambdas/api-contact"
   output_path = "${path.module}/.terraform/lambda-packages/api-contact.zip"
 }
 
 data "archive_file" "api_users" {
   type        = "zip"
-  source_dir  = "${path.module}/../lambdas/api-users"
+  source_dir  = "${path.module}/../../../lambdas/api-users"
   output_path = "${path.module}/.terraform/lambda-packages/api-users.zip"
 }
 
 data "archive_file" "api_analytics" {
   type        = "zip"
-  source_dir  = "${path.module}/../lambdas/api-analytics"
+  source_dir  = "${path.module}/../../../lambdas/api-analytics"
   output_path = "${path.module}/.terraform/lambda-packages/api-analytics.zip"
 }
 
 data "archive_file" "batch_appointments" {
   type        = "zip"
-  source_dir  = "${path.module}/../lambdas/batch-appointments"
+  source_dir  = "${path.module}/../../../lambdas/batch-appointments"
   output_path = "${path.module}/.terraform/lambda-packages/batch-appointments.zip"
 }
 
 data "archive_file" "batch_sales" {
   type        = "zip"
-  source_dir  = "${path.module}/../lambdas/batch-sales"
+  source_dir  = "${path.module}/../../../lambdas/batch-sales"
   output_path = "${path.module}/.terraform/lambda-packages/batch-sales.zip"
 }
 
