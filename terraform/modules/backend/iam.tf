@@ -89,7 +89,7 @@ resource "aws_iam_policy" "secrets_access" {
         Action = [
           "secretsmanager:GetSecretValue"
         ]
-        Resource = aws_secretsmanager_secret.tekmetric_credentials.arn
+        Resource = var.tekmetric_secret_arn
       }
     ]
   })
