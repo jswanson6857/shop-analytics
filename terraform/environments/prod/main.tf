@@ -17,22 +17,22 @@ terraform {
   }
   
   # =============================================================================
-  # S3 Backend with DynamoDB Locking (PREVENTS DUPLICATE RESOURCES)
+  # Backend Configuration
   # =============================================================================
-  backend "s3" {
-    bucket         = "revivecrm-terraform-state-YOUR-UNIQUE-ID"  # CHANGE THIS!
-    key            = "production/terraform.tfstate"
-    region         = "us-east-1"
-    encrypt        = true
-    dynamodb_table = "revivecrm-terraform-locks"
+  # START with local backend for first deployment
+  # AFTER running bootstrap, you'll migrate to S3 backend
+  
+  backend "local" {
+    path = "terraform.tfstate"
   }
   
-  # Alternative: Terraform Cloud (also prevents duplicates)
-  # backend "remote" {
-  #   organization = "YOUR-ORG-NAME"
-  #   workspaces {
-  #     name = "revivecrm-production"
-  #   }
+  # AFTER BOOTSTRAP: Comment out "local" above and uncomment this:
+  # backend "s3" {
+  #   bucket         = "revivecrm-terraform-state-YOUR-ACCOUNT-ID"  # From bootstrap output
+  #   key            = "production/terraform.tfstate"
+  #   region         = "us-east-1"
+  #   encrypt        = true
+  #   dynamodb_table = "revivecrm-terraform-locks"
   # }
 }
 
