@@ -1,21 +1,17 @@
-// src/components/LogoutButton.js
-import React from "react";
-import { useAuth0 } from "@auth0/auth0-react";
+import React from 'react';
+import { useAuth0 } from '@auth0/auth0-react';
 
-const LogoutButton = () => {
-  const { logout, user } = useAuth0();
-
+function LogoutPage() {
+  const { logout } = useAuth0();
+  
   return (
-    <button
-      className="auth-button logout-button"
-      onClick={() =>
-        logout({ logoutParams: { returnTo: window.location.origin } })
-      }
-      title={`Logged in as ${user?.email || "User"}`}
+    <button 
+      className="logout-btn" 
+      onClick={() => logout({ returnTo: window.location.origin })}
     >
-      👤 {user?.email || "Logout"}
+      Logout
     </button>
   );
-};
+}
 
-export default LogoutButton;
+export default LogoutPage;

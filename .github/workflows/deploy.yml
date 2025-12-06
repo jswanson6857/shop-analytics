@@ -1,5 +1,4 @@
-# .github/workflows/deploy.yml
-name: Deploy Infrastructure and Frontend
+name: Deploy ReviveCRM
 
 on:
   push:
@@ -7,17 +6,6 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      destroy:
-        description: "Destroy infrastructure"
-        required: false
-        default: false
-        type: boolean
-      run_backfill:
-        description: "Run DynamoDB backfill (type BACKFILL to confirm)"
-        required: false
-        default: ""
-        type: string
 
 env:
   AWS_REGION: us-east-1
@@ -25,243 +13,64 @@ env:
   NODE_VERSION: 18
 
 jobs:
-  # NEW JOB: DynamoDB Backfill
-  backfill:
-    name: "Backfill DynamoDB pk Field"
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_backfill == 'BACKFILL'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
-      - name: Install boto3
-        run: pip install boto3
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Verify AWS Connection
-        run: |
-          echo "🔍 Testing AWS connection..."
-          aws sts get-caller-identity
-          echo ""
-          echo "✅ AWS credentials working!"
-          echo ""
-          echo "📊 Checking DynamoDB table..."
-          aws dynamodb describe-table --table-name webhook-ingestion-webhook-data --query 'Table.[TableName,ItemCount,TableStatus]' --output text
-          echo ""
-
-      - name: Create and Run Backfill Script
-        run: |
-          cat > backfill_pk_field.py << 'EOFPYTHON'
-          import boto3
-          import os
-
-          TABLE_NAME = os.environ.get('TABLE_NAME', 'webhook-ingestion-webhook-data')
-          AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
-
-          def backfill_pk_field():
-              dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION)
-              table = dynamodb.Table(TABLE_NAME)
-              
-              print(f"🔍 Starting backfill for table: {TABLE_NAME}")
-              print(f"📍 Region: {AWS_REGION}\n")
-              
-              items_scanned = 0
-              items_updated = 0
-              items_skipped = 0
-              errors = 0
-              
-              scan_kwargs = {
-                  'ProjectionExpression': 'id, #ts, pk',
-                  'ExpressionAttributeNames': {'#ts': 'timestamp'}
-              }
-              
-              try:
-                  while True:
-                      response = table.scan(**scan_kwargs)
-                      items = response.get('Items', [])
-                      
-                      for item in items:
-                          items_scanned += 1
-                          
-                          if 'pk' in item and item['pk'] == 'all':
-                              items_skipped += 1
-                              if items_scanned % 100 == 0:
-                                  print(f"Progress: {items_scanned} scanned, {items_updated} updated, {items_skipped} skipped")
-                              continue
-                          
-                          try:
-                              table.update_item(
-                                  Key={
-                                      'id': item['id'],
-                                      'timestamp': item['timestamp']
-                                  },
-                                  UpdateExpression='SET pk = :pk_val',
-                                  ExpressionAttributeValues={
-                                      ':pk_val': 'all'
-                                  }
-                              )
-                              items_updated += 1
-                              
-                              if items_updated % 100 == 0:
-                                  print(f"✅ Updated {items_updated} items so far...")
-                                  
-                          except Exception as e:
-                              errors += 1
-                              print(f"❌ Error updating item {item.get('id')}: {str(e)}")
-                      
-                      if 'LastEvaluatedKey' not in response:
-                          break
-                      
-                      scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
-                      print(f"📄 Fetching next batch... (Total scanned: {items_scanned})")
-              
-              except Exception as e:
-                  print(f"\n❌ Fatal error during scan: {str(e)}")
-                  return False
-              
-              print("\n" + "="*60)
-              print("🎉 BACKFILL COMPLETE!")
-              print("="*60)
-              print(f"📊 Items scanned:  {items_scanned:,}")
-              print(f"✅ Items updated:  {items_updated:,}")
-              print(f"⏭️  Items skipped:  {items_skipped:,}")
-              print(f"❌ Errors:         {errors}")
-              print("="*60)
-              
-              if errors > 0:
-                  return False
-              
-              print("\n✨ Success! All items now have pk='all'")
-              return True
-
-          if __name__ == '__main__':
-              success = backfill_pk_field()
-              if not success:
-                  exit(1)
-          EOFPYTHON
-
-          echo "🚀 Running backfill script..."
-          python backfill_pk_field.py
-
-      - name: Backfill Success Summary
-        if: success()
-        run: |
-          echo ""
-          echo "🎉 BACKFILL COMPLETED SUCCESSFULLY!"
-          echo "========================================="
-          echo ""
-          echo "✅ All DynamoDB items now have pk='all'"
-          echo "✅ Refresh your dashboard to see all ~4,972 events"
-          echo "✅ Only 'posted by' ROs will be visible (as designed)"
-          echo "✅ All events for same RO are combined into one card"
-          echo ""
-          echo "🎯 You can now remove the run_backfill input from this workflow!"
-
-  destroy:
-    name: "Destroy Infrastructure"
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.destroy == 'true'
-
-    defaults:
-      run:
-        shell: bash
-        working-directory: ./terraform
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Setup Terraform Cloud Credentials
-        run: |
-          cat > ~/.terraformrc << EOF
-          credentials "app.terraform.io" {
-            token = "${{ secrets.TF_API_TOKEN }}"
-          }
-          EOF
-
-      - name: Terraform Init
-        run: terraform init
-
-      - name: Terraform Destroy
-        run: terraform destroy -auto-approve
-        env:
-          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
   terraform:
     name: "Deploy Infrastructure"
     runs-on: ubuntu-latest
-    if: github.event.inputs.destroy != 'true' && github.event.inputs.run_backfill != 'BACKFILL'
-
+    
     defaults:
       run:
         shell: bash
-        working-directory: ./terraform
-
+        working-directory: ./terraform/environments/prod
+    
     outputs:
-      websocket_url: ${{ steps.tf_output.outputs.websocket_url }}
+      api_gateway_url: ${{ steps.tf_output.outputs.api_gateway_url }}
       s3_bucket: ${{ steps.tf_output.outputs.s3_bucket }}
       cloudfront_url: ${{ steps.tf_output.outputs.cloudfront_url }}
       cloudfront_distribution_id: ${{ steps.tf_output.outputs.cloudfront_distribution_id }}
-      webhook_endpoint: ${{ steps.tf_output.outputs.webhook_endpoint }}
-
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+      
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
-
+      
       - name: Setup Terraform Cloud Credentials
         run: |
-          cat > ~/.terraformrc << EOF
+          cat > ~/.terraformrc << EOFTF
           credentials "app.terraform.io" {
             token = "${{ secrets.TF_API_TOKEN }}"
           }
-          EOF
-
+          EOFTF
+      
       - name: Terraform Format
         id: fmt
         run: terraform fmt -check
         continue-on-error: true
-
+      
       - name: Terraform Init
         id: init
         run: terraform init
-
+      
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
-
+      
       - name: Terraform Plan
         id: plan
         if: github.event_name == 'pull_request'
         run: terraform plan -no-color -input=false
         env:
-          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_tekmetric_client_id: ${{ secrets.TEKMETRIC_CLIENT_ID }}
+          TF_VAR_tekmetric_client_secret: ${{ secrets.TEKMETRIC_CLIENT_SECRET }}
+          TF_VAR_tekmetric_shop_id: ${{ secrets.TEKMETRIC_SHOP_ID }}
+          TF_VAR_auth0_domain: ${{ secrets.AUTH0_DOMAIN }}
+          TF_VAR_auth0_client_id: ${{ secrets.AUTH0_CLIENT_ID }}
         continue-on-error: true
-
+      
       - name: Update Pull Request
         uses: actions/github-script@v7
         if: github.event_name == 'pull_request'
@@ -291,86 +100,97 @@ jobs:
               repo: context.repo.repo,
               body: output
             })
-
+      
       - name: Terraform Plan Status
         if: steps.plan.outcome == 'failure'
         run: exit 1
-
+      
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -input=false
         env:
-          TF_VAR_aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          TF_VAR_aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
+          TF_VAR_tekmetric_client_id: ${{ secrets.TEKMETRIC_CLIENT_ID }}
+          TF_VAR_tekmetric_client_secret: ${{ secrets.TEKMETRIC_CLIENT_SECRET }}
+          TF_VAR_tekmetric_shop_id: ${{ secrets.TEKMETRIC_SHOP_ID }}
+          TF_VAR_auth0_domain: ${{ secrets.AUTH0_DOMAIN }}
+          TF_VAR_auth0_client_id: ${{ secrets.AUTH0_CLIENT_ID }}
+      
       - name: Get Terraform Outputs
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         id: tf_output
         run: |
-          echo "websocket_url=$(terraform output -raw websocket_api_url)" >> $GITHUB_OUTPUT
+          echo "api_gateway_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
           echo "s3_bucket=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
           echo "cloudfront_url=$(terraform output -raw cloudfront_url)" >> $GITHUB_OUTPUT
           echo "cloudfront_distribution_id=$(terraform output -raw cloudfront_distribution_id)" >> $GITHUB_OUTPUT
-          echo "webhook_endpoint=$(terraform output -raw webhook_endpoint)" >> $GITHUB_OUTPUT
+      
+      - name: Create deployment summary
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          echo "## 🚀 Infrastructure Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**API Gateway URL:** $(terraform output -raw api_gateway_url)" >> $GITHUB_STEP_SUMMARY
+          echo "**CloudFront URL:** $(terraform output -raw cloudfront_url)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Frontend deployment will start automatically..." >> $GITHUB_STEP_SUMMARY
 
   frontend:
     name: "Build and Deploy Frontend"
     runs-on: ubuntu-latest
     needs: terraform
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.inputs.destroy != 'true' && github.event.inputs.run_backfill != 'BACKFILL'
-
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
     defaults:
       run:
         shell: bash
         working-directory: ./frontend
-
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+      
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
-
+      
       - name: Install dependencies
         run: |
           rm -f package-lock.json
           npm install
           npm install --package-lock-only
-
-      - name: Create environment file with WebSocket URL
+      
+      - name: Create environment file
         run: |
-          echo "REACT_APP_WEBSOCKET_URL=${{ needs.terraform.outputs.websocket_url }}" > .env
-          echo "NODE_ENV=production" >> .env
-          echo "REACT_APP_AUTH0_DOMAIN=${{ secrets.OKTA_ISSUER }}" >> .env
-          echo "REACT_APP_AUTH0_CLIENT_ID=${{ secrets.OKTA_CLIENT_ID }}" >> .env
-          echo "Environment file created with WebSocket URL:"
-          cat .env
-
+          echo "REACT_APP_API_URL=${{ needs.terraform.outputs.api_gateway_url }}" > .env.production
+          echo "REACT_APP_AUTH0_DOMAIN=${{ secrets.AUTH0_DOMAIN }}" >> .env.production
+          echo "REACT_APP_AUTH0_CLIENT_ID=${{ secrets.AUTH0_CLIENT_ID }}" >> .env.production
+          echo "Environment file created:"
+          cat .env.production
+      
       - name: Build React application
         run: npm run build
-
-      - name: Verify WebSocket URL is embedded in build
+      
+      - name: Verify API URL is embedded in build
         run: |
-          echo "Verifying WebSocket URL is embedded in the build..."
-          if find build/static/js/ -name "*.js" -exec grep -l "wss://" {} \; | head -1 > /dev/null; then
-            echo "✅ WebSocket URL found in JavaScript bundle"
-            echo "Found in file: $(find build/static/js/ -name "*.js" -exec grep -l "wss://" {} \; | head -1)"
+          echo "Verifying API URL is embedded in the build..."
+          if find build/static/js/ -name "*.js" -exec grep -l "execute-api" {} \; | head -1 > /dev/null; then
+            echo "✅ API URL found in JavaScript bundle"
+            echo "Found in file: $(find build/static/js/ -name "*.js" -exec grep -l "execute-api" {} \; | head -1)"
           else
-            echo "❌ WebSocket URL NOT found in build - this will cause the original issue!"
+            echo "❌ API URL NOT found in build!"
             exit 1
           fi
-
+      
       - name: Deploy to S3 with cache-busting headers
         run: |
           echo "Deploying to S3 bucket: ${{ needs.terraform.outputs.s3_bucket }}"
@@ -380,7 +200,7 @@ jobs:
             --cache-control "no-cache, no-store, must-revalidate" \
             --content-type "text/html"
           echo "✅ Files uploaded with no-cache headers on HTML"
-
+      
       - name: Invalidate CloudFront cache
         run: |
           echo "🔄 Invalidating CloudFront cache..."
@@ -388,46 +208,21 @@ jobs:
             --distribution-id ${{ needs.terraform.outputs.cloudfront_distribution_id }} \
             --paths "/*"
           echo "✅ CloudFront invalidation initiated"
-
+      
       - name: Wait for cache invalidation
         run: |
           echo "⏳ Waiting for CloudFront invalidation..."
-          sleep 90
-
+          sleep 60
+      
       - name: Output deployment URLs
         run: |
           echo ""
           echo "🎉 DEPLOYMENT COMPLETED!"
           echo "================================"
           echo "Dashboard URL: ${{ needs.terraform.outputs.cloudfront_url }}"
-          echo "WebSocket URL: ${{ needs.terraform.outputs.websocket_url }}"
-          echo "Webhook URL: ${{ needs.terraform.outputs.webhook_endpoint }}"
-
-  test_deployment:
-    name: "Test Complete Pipeline"
-    runs-on: ubuntu-latest
-    needs: [terraform, frontend]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.event.inputs.destroy != 'true' && github.event.inputs.run_backfill != 'BACKFILL'
-
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Test webhook endpoint
-        run: |
-          echo "🧪 Testing webhook endpoint..."
-          RESPONSE=$(curl -s -w "%{http_code}" -X POST ${{ needs.terraform.outputs.webhook_endpoint }} \
-            -H "Content-Type: application/json" \
-            -d '{"data": {"repairOrderNumber": 99999, "test": true}}')
-          echo "Webhook response: $RESPONSE"
-          HTTP_CODE="${RESPONSE: -3}"
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Webhook test passed"
-          else
-            echo "❌ Webhook test failed: $HTTP_CODE"
-            exit 1
-          fi
+          echo "API Gateway URL: ${{ needs.terraform.outputs.api_gateway_url }}"
+          echo ""
+          echo "## ✅ ReviveCRM Deployed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Application URL:** ${{ needs.terraform.outputs.cloudfront_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**API URL:** ${{ needs.terraform.outputs.api_gateway_url }}" >> $GITHUB_STEP_SUMMARY

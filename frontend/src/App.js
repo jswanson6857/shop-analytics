@@ -1,827 +1,106 @@
-// src/App.js - OPTIMIZED: Progressive loading + faster queries
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  useMemo,
-  createContext,
-  useContext,
-} from "react";
-import { Auth0Provider, useAuth0 } from "@auth0/auth0-react";
-import "./App.css";
-import RepairOrdersPage from "./components/RepairOrdersPage";
-import EventExplorerPage from "./components/EventExplorerPage";
-import JobAnalyticsPage from "./components/JobAnalyticsPage";
-import FollowUpPage from "./components/FollowUpPage";
-import CustomerImportPage from "./components/CustomerImportPage";
-import LoginButton from "./components/LoginPage";
-import LogoutButton from "./components/LogoutPage";
-import { parseWebhookData, combineROEvents } from "./utils/dataParser";
-
-// Theme Context
-const ThemeContext = createContext();
-
-export const useTheme = () => {
-  const context = useContext(ThemeContext);
-  if (!context) throw new Error("useTheme must be used within ThemeProvider");
-  return context;
-};
-
-// Theme Provider
-const ThemeProvider = ({ children }) => {
-  const [isDark, setIsDark] = useState(() => {
-    const saved = localStorage.getItem("auto-shop-theme");
-    return saved === "dark";
-  });
-
-  useEffect(() => {
-    localStorage.setItem("auto-shop-theme", isDark ? "dark" : "light");
-    document.documentElement.classList.toggle("dark-mode", isDark);
-  }, [isDark]);
-
-  const toggleTheme = () => setIsDark((prev) => !prev);
-
-  return (
-    <ThemeContext.Provider value={{ isDark, toggleTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
-};
-
-// Theme Toggle Button
-const ThemeToggle = () => {
-  const { isDark, toggleTheme } = useTheme();
-
-  return (
-    <button
-      onClick={toggleTheme}
-      className="theme-toggle-btn"
-      aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
-      title={`Switch to ${isDark ? "light" : "dark"} mode`}
-    >
-      {isDark ? "☀️" : "🌙"}
-    </button>
-  );
-};
-
-const WEBSOCKET_URL =
-  process.env.REACT_APP_WEBSOCKET_URL ||
-  "wss://u4sqthpk4c.execute-api.us-east-1.amazonaws.com/dev";
-const REST_API_URL =
-  process.env.REACT_APP_REST_API_URL ||
-  "https://x21d6cpmv6.execute-api.us-east-1.amazonaws.com/dev";
+import React, { useState } from 'react';
+import { Auth0Provider, useAuth0 } from '@auth0/auth0-react';
+import FollowUpBoard from './components/FollowUpBoard';
+import FollowUpTracker from './components/FollowUpTracker';
+import AppointmentTracker from './components/AppointmentTracker';
+import ReturnSalesTracker from './components/ReturnSalesTracker';
+import LoginPage from './components/LoginPage';
+import LogoutPage from './components/LogoutPage';
+import './App.css';
 
 function AppContent() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth0();
-
-  const [allEvents, setAllEvents] = useState([]);
-  const [combinedROs, setCombinedROs] = useState([]);
-  const [customers, setCustomers] = useState({});
-  const [connectionStatus, setConnectionStatus] = useState("disconnected");
-  const [currentPage, setCurrentPage] = useState("orders");
-  const [historicalDataLoaded, setHistoricalDataLoaded] = useState(false);
-  const [loadingProgress, setLoadingProgress] = useState({
-    loaded: 0,
-    total: 0,
-  });
-
-  // Filters
-  const [searchTerm, setSearchTerm] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedCategory, setSelectedCategory] = useState("all");
-
-  const [expandedEventId, setExpandedEventId] = useState(null);
-  const [selectedRONumber, setSelectedRONumber] = useState(null);
-
-  const websocketRef = useRef(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    document.title = "Auto Shop Dashboard - Real-Time Orders";
-    mountedRef.current = true;
-
-    // Load customers from localStorage
-    const savedCustomers = localStorage.getItem("auto-shop-customers");
-    if (savedCustomers) {
-      try {
-        setCustomers(JSON.parse(savedCustomers));
-      } catch (e) {
-        console.error("Failed to parse saved customers:", e);
-      }
-    }
-
-    return () => {
-      mountedRef.current = false;
-      if (websocketRef.current) websocketRef.current.close();
-    };
-  }, []);
-
-  // Update customers handler
-  const updateCustomers = useCallback((newCustomers) => {
-    setCustomers(newCustomers);
-    localStorage.setItem("auto-shop-customers", JSON.stringify(newCustomers));
-  }, []);
-
-  // Combine events by RO number and filter for posted-only
-  useEffect(() => {
-    if (allEvents.length === 0) {
-      setCombinedROs([]);
-      return;
-    }
-
-    const combined = combineROEvents(allEvents);
-
-    // CRITICAL: Only show ROs where most recent event contains "posted by"
-    const postedOnly = combined.filter((ro) => {
-      const mostRecentEvent = ro.events[0];
-      return (
-        mostRecentEvent.event &&
-        mostRecentEvent.event.toLowerCase().includes("posted by")
-      );
-    });
-
-    setCombinedROs(postedOnly);
-  }, [allEvents]);
-
-  // OPTIMIZED: Paginated historical fetch with PROGRESSIVE RENDERING
-  useEffect(() => {
-    const fetchHistoricalDataBatch = async () => {
-      if (!REST_API_URL || historicalDataLoaded || !isAuthenticated) return;
-
-      setConnectionStatus("loading-history");
-      console.log("🔄 Starting optimized paginated historical fetch...");
-
-      let fetchedEvents = [];
-      let lastKey = null;
-      let batchCount = 0;
-
-      try {
-        do {
-          const url = new URL(`${REST_API_URL}/data`);
-          url.searchParams.append("limit", "1000"); // Larger batches for speed
-          url.searchParams.append("hours", "720");
-          if (lastKey) url.searchParams.append("lastKey", lastKey);
-
-          batchCount++;
-          console.log(`📦 Fetching batch ${batchCount}...`);
-
-          const response = await fetch(url.toString());
-          if (!response.ok)
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-
-          const result = await response.json();
-          const eventsPage = result.events || [];
-
-          console.log(
-            `Received ${eventsPage.length} events in batch ${batchCount}`
-          );
-
-          const parsedEvents = eventsPage
-            .map((rawEvent) => parseWebhookData(rawEvent))
-            .filter(Boolean);
-
-          fetchedEvents = fetchedEvents.concat(parsedEvents);
-
-          // ✨ PROGRESSIVE RENDERING: Update UI after each batch
-          if (mountedRef.current) {
-            fetchedEvents.sort(
-              (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
-            );
-            setAllEvents([...fetchedEvents]); // Trigger re-render with current data
-            setLoadingProgress({
-              loaded: fetchedEvents.length,
-              total: fetchedEvents.length + (result.hasMore ? 1000 : 0),
-            });
-            setConnectionStatus(`loading (${fetchedEvents.length} events)`);
-          }
-
-          lastKey = result.lastKey;
-
-          // Small delay to prevent overwhelming the API
-          if (lastKey) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
-          }
-        } while (lastKey && mountedRef.current);
-
-        fetchedEvents.sort(
-          (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
-        );
-
-        console.log(`✅ Loaded all historical events: ${fetchedEvents.length}`);
-
-        if (mountedRef.current) {
-          setAllEvents(fetchedEvents);
-          setHistoricalDataLoaded(true);
-          setConnectionStatus("disconnected");
-          setLoadingProgress({ loaded: 0, total: 0 });
-        }
-      } catch (err) {
-        console.error("❌ Failed to fetch historical data:", err);
-        if (mountedRef.current) {
-          setConnectionStatus("error");
-          setHistoricalDataLoaded(true);
-        }
-      }
-    };
-
-    if (mountedRef.current && !historicalDataLoaded && isAuthenticated) {
-      fetchHistoricalDataBatch();
-    }
-  }, [historicalDataLoaded, isAuthenticated]);
-
-  // WebSocket connection
-  const connectWebSocket = useCallback(() => {
-    if (!mountedRef.current || !WEBSOCKET_URL || !isAuthenticated) return;
-    if (websocketRef.current?.readyState === WebSocket.OPEN) return;
-
-    console.log(`Connecting to WebSocket: ${WEBSOCKET_URL}`);
-    setConnectionStatus("connecting");
-
-    try {
-      const ws = new WebSocket(WEBSOCKET_URL);
-      websocketRef.current = ws;
-
-      ws.onopen = () => {
-        console.log("WebSocket connected");
-        if (mountedRef.current) setConnectionStatus("connected");
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === "webhook_data" && msg.event === "insert") {
-            const parsedEvent = parseWebhookData({
-              id: msg.data.id,
-              timestamp: msg.data.timestamp,
-              body: msg.data.parsed_body,
-            });
-            if (parsedEvent && mountedRef.current) {
-              setAllEvents((prev) => [parsedEvent, ...prev.slice(0, 999)]);
-            }
-          }
-        } catch (e) {
-          console.log("Error parsing WebSocket message:", e);
-        }
-      };
-
-      ws.onclose = () => {
-        console.log("WebSocket closed");
-        if (mountedRef.current) setConnectionStatus("disconnected");
-      };
-
-      ws.onerror = (err) => {
-        console.log("WebSocket error:", err);
-        if (mountedRef.current) setConnectionStatus("error");
-      };
-    } catch (err) {
-      console.log("Failed to create WebSocket:", err);
-      setConnectionStatus("error");
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    if (
-      historicalDataLoaded &&
-      connectionStatus === "disconnected" &&
-      isAuthenticated
-    ) {
-      connectWebSocket();
-    }
-  }, [
-    historicalDataLoaded,
-    connectionStatus,
-    connectWebSocket,
-    isAuthenticated,
-  ]);
-
-  // Filtering for different pages
-  const filteredROs = useMemo(() => {
-    if (!combinedROs.length) return [];
-
-    return combinedROs.filter((ro) => {
-      const search = searchTerm.toLowerCase();
-      const matchesSearch =
-        !search ||
-        ro.repairOrderNumber?.toString().includes(search) ||
-        ro.customer?.firstName?.toLowerCase().includes(search) ||
-        ro.customer?.lastName?.toLowerCase().includes(search) ||
-        ro.technician?.firstName?.toLowerCase().includes(search);
-
-      const activityDate = new Date(ro.timestamp);
-      const matchesDateFrom =
-        !dateFrom || activityDate >= new Date(dateFrom + "T00:00:00");
-      const matchesDateTo =
-        !dateTo || activityDate <= new Date(dateTo + "T23:59:59");
-
-      const matchesStatus =
-        statusFilter === "all" || ro.repairOrderStatus?.name === statusFilter;
-
-      return matchesSearch && matchesDateFrom && matchesDateTo && matchesStatus;
-    });
-  }, [combinedROs, searchTerm, dateFrom, dateTo, statusFilter]);
-
-  const filteredEvents = useMemo(() => {
-    if (!allEvents.length) return [];
-
-    return allEvents.filter((event) => {
-      const search = searchTerm.toLowerCase();
-      const matchesSearch =
-        !search ||
-        event.repairOrderNumber?.toString().includes(search) ||
-        event.event?.toLowerCase().includes(search);
-
-      const activityDate = new Date(event.timestamp);
-      const matchesDateFrom =
-        !dateFrom || activityDate >= new Date(dateFrom + "T00:00:00");
-      const matchesDateTo =
-        !dateTo || activityDate <= new Date(dateTo + "T23:59:59");
-
-      return matchesSearch && matchesDateFrom && matchesDateTo;
-    });
-  }, [allEvents, searchTerm, dateFrom, dateTo]);
-
-  // Navigate to RO modal
-  const openROModal = useCallback((roNumber) => {
-    setSelectedRONumber(roNumber);
-  }, []);
-
-  const closeROModal = useCallback(() => {
-    setSelectedRONumber(null);
-  }, []);
-
-  // Navigate to Event Explorer
-  const navigateToEvent = useCallback(
-    (roNumber) => {
-      const event = allEvents.find((e) => e.repairOrderNumber === roNumber);
-      if (!event) return;
-
-      setCurrentPage("events");
-      setExpandedEventId(event.id);
-
-      setTimeout(() => {
-        const el = document.getElementById(`event-${event.id}`);
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 100);
-    },
-    [allEvents]
-  );
-
-  const getStatusColor = () => {
-    switch (connectionStatus) {
-      case "connected":
-        return "#28a745";
-      case "connecting":
-        return "#17a2b8";
-      case "loading-history":
-      case "loading":
-        return "#6f42c1";
-      case "disconnected":
-        return "#ffc107";
-      case "error":
-        return "#dc3545";
-      default:
-        return "#6c757d";
-    }
-  };
-
-  const getStatusText = () => {
-    if (connectionStatus.startsWith("loading")) {
-      return connectionStatus;
-    }
-    switch (connectionStatus) {
-      case "connected":
-        return "Connected";
-      case "connecting":
-        return "Connecting...";
-      case "disconnected":
-        return "Disconnected";
-      case "error":
-        return "Error";
-      default:
-        return "Unknown";
-    }
-  };
-
-  // Show loading while Auth0 initializes
-  if (authLoading) {
+  const { isLoading, isAuthenticated, user } = useAuth0();
+  const [currentView, setCurrentView] = useState('board');
+  
+  if (isLoading) {
     return (
-      <div className="auto-shop-dashboard">
-        <div className="loading-screen">
-          <h2>Loading...</h2>
-        </div>
+      <div className="loading-screen">
+        <div className="spinner"></div>
+        <p>Loading...</p>
       </div>
     );
   }
-
-  // Show login screen if not authenticated
+  
   if (!isAuthenticated) {
-    return (
-      <div className="auto-shop-dashboard">
-        <div className="login-screen">
-          <div className="login-container">
-            <h1>🔧 Auto Shop Dashboard</h1>
-            <p>
-              Please log in to access customer information and repair orders
-            </p>
-            <LoginButton />
+    return <LoginPage />;
+  }
+  
+  return (
+    <div className="app">
+      {/* Sidebar */}
+      <div className="sidebar">
+        <div className="sidebar-header">
+          <h2>ReviveCRM</h2>
+          <p className="tagline">Callback Management</p>
+        </div>
+        
+        <nav className="sidebar-nav">
+          <button
+            className={`nav-button ${currentView === 'board' ? 'active' : ''}`}
+            onClick={() => setCurrentView('board')}
+          >
+            <span className="nav-icon">📋</span>
+            <span className="nav-text">Follow Up Board</span>
+          </button>
+          
+          <button
+            className={`nav-button ${currentView === 'tracker' ? 'active' : ''}`}
+            onClick={() => setCurrentView('tracker')}
+          >
+            <span className="nav-icon">📞</span>
+            <span className="nav-text">Follow Up Tracker</span>
+          </button>
+          
+          <button
+            className={`nav-button ${currentView === 'appointments' ? 'active' : ''}`}
+            onClick={() => setCurrentView('appointments')}
+          >
+            <span className="nav-icon">📅</span>
+            <span className="nav-text">Appointment Tracker</span>
+          </button>
+          
+          <button
+            className={`nav-button ${currentView === 'sales' ? 'active' : ''}`}
+            onClick={() => setCurrentView('sales')}
+          >
+            <span className="nav-icon">📊</span>
+            <span className="nav-text">Return Sales Tracker</span>
+          </button>
+        </nav>
+        
+        <div className="sidebar-footer">
+          <div className="user-info">
+            <div className="user-avatar">
+              {user?.name?.charAt(0) || 'U'}
+            </div>
+            <div className="user-details">
+              <div className="user-name">{user?.name || 'User'}</div>
+              <div className="user-email">{user?.email}</div>
+            </div>
           </div>
+          <LogoutPage />
         </div>
       </div>
-    );
-  }
-
-  return (
-    <div className="auto-shop-dashboard">
-      <header className="dashboard-header">
-        <div className="header-row">
-          <h1>🔧 Auto Shop Dashboard</h1>
-          <div className="header-controls">
-            <ThemeToggle />
-            <div className="connection-status">
-              <div
-                className="status-indicator"
-                style={{ backgroundColor: getStatusColor() }}
-              ></div>
-              <span>{getStatusText()}</span>
-            </div>
-            <LogoutButton />
-          </div>
-        </div>
-
-        {/* Show loading progress bar */}
-        {loadingProgress.loaded > 0 && !historicalDataLoaded && (
-          <div
-            style={{
-              background: "rgba(255,255,255,0.1)",
-              borderRadius: "4px",
-              height: "4px",
-              marginTop: "0.5rem",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                background: "#28a745",
-                height: "100%",
-                width: `${
-                  (loadingProgress.loaded /
-                    Math.max(loadingProgress.total, loadingProgress.loaded)) *
-                  100
-                }%`,
-                transition: "width 0.3s ease",
-              }}
-            />
-          </div>
-        )}
-
-        <div className="nav-tabs">
-          <button
-            className={currentPage === "orders" ? "active" : ""}
-            onClick={() => setCurrentPage("orders")}
-          >
-            Repair Orders (Posted)
-          </button>
-          <button
-            className={currentPage === "events" ? "active" : ""}
-            onClick={() => setCurrentPage("events")}
-          >
-            Event Explorer (All Events)
-          </button>
-          <button
-            className={currentPage === "analytics" ? "active" : ""}
-            onClick={() => setCurrentPage("analytics")}
-          >
-            Job Analytics
-          </button>
-          <button
-            className={currentPage === "followup" ? "active" : ""}
-            onClick={() => setCurrentPage("followup")}
-          >
-            Follow-Up Tracker
-          </button>
-          <button
-            className={currentPage === "import" ? "active" : ""}
-            onClick={() => setCurrentPage("import")}
-          >
-            Import Customers
-          </button>
-        </div>
-      </header>
-
-      <main className="events-container">
-        {currentPage === "orders" && (
-          <RepairOrdersPage
-            data={filteredROs}
-            customers={customers}
-            searchTerm={searchTerm}
-            setSearchTerm={setSearchTerm}
-            dateFrom={dateFrom}
-            setDateFrom={setDateFrom}
-            dateTo={dateTo}
-            setDateTo={setDateTo}
-            statusFilter={statusFilter}
-            setStatusFilter={setStatusFilter}
-            connectionStatus={connectionStatus}
-            openROModal={openROModal}
-            navigateToEvent={navigateToEvent}
-          />
-        )}
-
-        {currentPage === "events" && (
-          <EventExplorerPage
-            data={filteredEvents}
-            searchTerm={searchTerm}
-            setSearchTerm={setSearchTerm}
-            dateFrom={dateFrom}
-            setDateFrom={setDateFrom}
-            dateTo={dateTo}
-            setDateTo={setDateTo}
-            expandedEventId={expandedEventId}
-            setExpandedEventId={setExpandedEventId}
-          />
-        )}
-
-        {currentPage === "analytics" && (
-          <JobAnalyticsPage
-            data={filteredROs}
-            allData={combinedROs}
-            selectedCategory={selectedCategory}
-            setSelectedCategory={setSelectedCategory}
-            dateFrom={dateFrom}
-            setDateFrom={setDateFrom}
-            dateTo={dateTo}
-            setDateTo={setDateTo}
-            openROModal={openROModal}
-          />
-        )}
-
-        {currentPage === "followup" && <FollowUpPage customers={customers} />}
-
-        {currentPage === "import" && (
-          <CustomerImportPage
-            customers={customers}
-            updateCustomers={updateCustomers}
-          />
-        )}
-      </main>
-
-      {/* RO Detail Modal */}
-      {selectedRONumber && (
-        <RODetailModal
-          roNumber={selectedRONumber}
-          combinedRO={combinedROs.find(
-            (ro) => ro.repairOrderNumber === selectedRONumber
-          )}
-          customers={customers}
-          onClose={closeROModal}
-        />
-      )}
+      
+      {/* Main Content */}
+      <div className="main-content">
+        {currentView === 'board' && <FollowUpBoard />}
+        {currentView === 'tracker' && <FollowUpTracker />}
+        {currentView === 'appointments' && <AppointmentTracker />}
+        {currentView === 'sales' && <ReturnSalesTracker />}
+      </div>
     </div>
   );
 }
 
-// RO Detail Modal Component (keeping existing implementation)
-const RODetailModal = ({ roNumber, combinedRO, customers, onClose }) => {
-  if (!combinedRO) return null;
-
-  const customer = customers[combinedRO.customerId] || {};
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="ro-detail-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>Repair Order #{roNumber}</h2>
-          <button className="modal-close" onClick={onClose}>
-            ✕
-          </button>
-        </div>
-
-        <div className="modal-body">
-          {/* Customer Info */}
-          <div className="customer-info-section">
-            <h3>Customer Information</h3>
-            <div className="info-grid">
-              <div className="info-item">
-                <span className="label">Name:</span>
-                <span className="value">
-                  {customer.name ||
-                    `${combinedRO.customer?.firstName || ""} ${
-                      combinedRO.customer?.lastName || ""
-                    }`}
-                </span>
-              </div>
-              <div className="info-item">
-                <span className="label">Phone:</span>
-                <span className="value">
-                  {customer.phone || "Not available"}
-                </span>
-              </div>
-              <div className="info-item">
-                <span className="label">Customer ID:</span>
-                <span className="value">#{combinedRO.customerId}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* RO Summary */}
-          <div className="ro-summary-section">
-            <h3>Order Summary</h3>
-            <div className="info-grid">
-              <div className="info-item">
-                <span className="label">Status:</span>
-                <span className="value">
-                  {combinedRO.repairOrderStatus?.name}
-                </span>
-              </div>
-              <div className="info-item">
-                <span className="label">Total:</span>
-                <span className="value">
-                  ${(combinedRO.totalWithTax / 100).toFixed(2)}
-                </span>
-              </div>
-              <div className="info-item">
-                <span className="label">Balance Due:</span>
-                <span className="value">
-                  ${(combinedRO.balanceDue / 100).toFixed(2)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Jobs with Contact Tracking */}
-          <JobContactSection ro={combinedRO} customer={customer} />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Job Contact Section Component
-const JobContactSection = ({ ro, customer }) => {
-  const [jobNotes, setJobNotes] = useState({});
-  const [jobResponses, setJobResponses] = useState({});
-
-  useEffect(() => {
-    const savedData = localStorage.getItem(`ro-jobs-${ro.repairOrderNumber}`);
-    if (savedData) {
-      try {
-        const parsed = JSON.parse(savedData);
-        setJobNotes(parsed.notes || {});
-        setJobResponses(parsed.responses || {});
-      } catch (e) {
-        console.error("Failed to load job data:", e);
-      }
-    }
-  }, [ro.repairOrderNumber]);
-
-  const handleSaveJob = (jobId) => {
-    const followUpData = {
-      roNumber: ro.repairOrderNumber,
-      jobId: jobId,
-      job: ro.jobs.find((j) => j.id === jobId),
-      customer: customer,
-      notes: jobNotes[jobId] || "",
-      response: jobResponses[jobId] || "no_response",
-      timestamp: new Date().toISOString(),
-      customerId: ro.customerId,
-    };
-
-    const existingFollowUps = JSON.parse(
-      localStorage.getItem("follow-up-jobs") || "[]"
-    );
-    const updatedFollowUps = [
-      ...existingFollowUps.filter((f) => f.jobId !== jobId),
-      followUpData,
-    ];
-    localStorage.setItem("follow-up-jobs", JSON.stringify(updatedFollowUps));
-
-    alert("Job contact information saved to Follow-Up Tracker!");
-  };
-
-  return (
-    <div className="jobs-contact-section">
-      <h3>Jobs - Contact Tracking</h3>
-
-      {ro.approvedJobs && ro.approvedJobs.length > 0 && (
-        <div className="job-group">
-          <h4 className="job-group-title approved">
-            ✓ Approved Jobs ({ro.approvedJobs.length})
-          </h4>
-          {ro.approvedJobs.map((job) => (
-            <JobContactCard
-              key={job.id}
-              job={job}
-              isApproved={true}
-              notes={jobNotes[job.id] || ""}
-              response={jobResponses[job.id] || "no_response"}
-              onNotesChange={(value) =>
-                setJobNotes((prev) => ({ ...prev, [job.id]: value }))
-              }
-              onResponseChange={(value) =>
-                setJobResponses((prev) => ({ ...prev, [job.id]: value }))
-              }
-              onSave={() => handleSaveJob(job.id)}
-            />
-          ))}
-        </div>
-      )}
-
-      {ro.jobs && ro.jobs.filter((j) => j.authorized === false).length > 0 && (
-        <div className="job-group">
-          <h4 className="job-group-title declined">
-            ✗ Declined Jobs (
-            {ro.jobs.filter((j) => j.authorized === false).length})
-          </h4>
-          {ro.jobs
-            .filter((j) => j.authorized === false)
-            .map((job) => (
-              <JobContactCard
-                key={job.id}
-                job={job}
-                isApproved={false}
-                notes={jobNotes[job.id] || ""}
-                response={jobResponses[job.id] || "no_response"}
-                onNotesChange={(value) =>
-                  setJobNotes((prev) => ({ ...prev, [job.id]: value }))
-                }
-                onResponseChange={(value) =>
-                  setJobResponses((prev) => ({ ...prev, [job.id]: value }))
-                }
-                onSave={() => handleSaveJob(job.id)}
-              />
-            ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const JobContactCard = ({
-  job,
-  isApproved,
-  notes,
-  response,
-  onNotesChange,
-  onResponseChange,
-  onSave,
-}) => {
-  return (
-    <div className={`job-contact-card ${isApproved ? "approved" : "declined"}`}>
-      <div className="job-contact-header">
-        <span className="job-name">{job.name}</span>
-        <span className="job-amount">
-          ${(job.totalWithTax / 100).toFixed(2)}
-        </span>
-      </div>
-
-      <div className="job-contact-inputs">
-        <div className="input-group">
-          <label>Notes:</label>
-          <textarea
-            value={notes}
-            onChange={(e) => onNotesChange(e.target.value)}
-            placeholder="Add notes about customer conversation..."
-            rows={3}
-          />
-        </div>
-
-        <div className="input-group">
-          <label>Customer Response:</label>
-          <select
-            value={response}
-            onChange={(e) => onResponseChange(e.target.value)}
-          >
-            <option value="no_response">No Response</option>
-            <option value="yes">Yes - Interested</option>
-            <option value="no">No - Not Interested</option>
-            <option value="maybe">Maybe - Call Back Later</option>
-            <option value="work_completed">Work Already Completed</option>
-          </select>
-        </div>
-
-        <button className="save-job-btn" onClick={onSave}>
-          💾 Save to Follow-Up Tracker
-        </button>
-      </div>
-    </div>
-  );
-};
-
 function App() {
   return (
     <Auth0Provider
-      domain={process.env.REACT_APP_AUTH0_DOMAIN}
-      clientId={process.env.REACT_APP_AUTH0_CLIENT_ID}
-      authorizationParams={{
-        redirect_uri: window.location.origin,
-      }}
+      domain={process.env.REACT_APP_AUTH0_DOMAIN || 'dev-fugvz4vli76oqpqw.us.auth0.com'}
+      clientId={process.env.REACT_APP_AUTH0_CLIENT_ID || '8OMklLM4zv5GsVZ8laNPOZK97IDDxoQP'}
+      redirectUri={window.location.origin}
     >
-      <ThemeProvider>
-        <AppContent />
-      </ThemeProvider>
+      <AppContent />
     </Auth0Provider>
   );
 }
