@@ -11,14 +11,29 @@ This directory contains Terraform configuration to create the **S3 bucket** and 
 ## ⚡ Quick Start
 
 ```bash
-# From project root
-bash bootstrap-state.sh
+# 1. Navigate to bootstrap directory
+cd terraform/bootstrap
+
+# 2. Initialize Terraform
+terraform init
+
+# 3. Review what will be created
+terraform plan
+
+# 4. Create the infrastructure
+terraform apply
+
+# 5. Get the bucket name
+terraform output state_bucket_name
+
+# 6. Update main.tf with the bucket name
+cd ../../
+# Edit: terraform/environments/prod/main.tf (line 22)
+# Replace: revivecrm-terraform-state-YOUR-UNIQUE-ID
+# With: [bucket name from step 5]
 ```
 
-That's it! The script will:
-1. Run `terraform apply` in this directory
-2. Create S3 bucket and DynamoDB table
-3. Automatically update your main.tf with the bucket name
+**Pure Terraform. No scripts. No AWS CLI.**
 
 ## 📋 What Gets Created
 
@@ -34,7 +49,7 @@ That's it! The script will:
 - **Billing**: Pay-per-request
 - **Cost**: ~$0.01/month
 
-## 🔧 Manual Setup (if script doesn't work)
+## 🔧 Terraform Commands
 
 ```bash
 # 1. Navigate to bootstrap directory

@@ -13,27 +13,28 @@ Package validation passed ✅
 
 ### 🔐 STEP 0: Set Up State Management (PREVENTS DUPLICATES!)
 
-**This is CRITICAL to prevent creating duplicate AWS resources!**
+**Simple Terraform approach - NO scripts, NO AWS CLI:**
 
 ```bash
-cd revivecrm-production
+cd revivecrm-production/terraform/bootstrap
 
-# Run the bootstrap script (one-time setup)
-bash bootstrap-state.sh
+# Run Terraform to create S3 + DynamoDB
+terraform init
+terraform apply
+# Type: yes
 
-# It will create:
-# - S3 bucket for state storage
-# - DynamoDB table for state locking
-# - Tell you the exact bucket name
+# Get the bucket name
+terraform output state_bucket_name
 
-# Then update main.tf with the bucket name it gives you
+# Copy that bucket name, then update main.tf:
+# Edit: terraform/environments/prod/main.tf (line 22)
+# Change: revivecrm-terraform-state-YOUR-UNIQUE-ID
+# To: [paste the bucket name]
 ```
 
-**Why this matters:**
-- ✅ Without this: Every deploy creates NEW duplicate resources
-- ✅ With this: Every deploy updates the SAME resources
+**That's it!** Pure Terraform, no scripts.
 
-**Read full guide:** `docs/STATE_MANAGEMENT.md`
+**Read full guide:** `BOOTSTRAP.md`
 
 ---
 

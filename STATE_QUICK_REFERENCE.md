@@ -10,23 +10,32 @@
 
 ---
 
-## ⚡ Quick Setup (2 Minutes)
+## ⚡ Quick Setup (Pure Terraform)
 
 ```bash
-# 1. Run bootstrap (uses Terraform to create S3 + DynamoDB)
-bash bootstrap-state.sh
+# 1. Go to bootstrap directory
+cd terraform/bootstrap
 
-# Answer "yes" when prompted
+# 2. Create state infrastructure with Terraform
+terraform init
+terraform apply
+# Type: yes
 
-# 2. The script automatically updates main.tf!
+# 3. Get bucket name
+terraform output state_bucket_name
 
-# 3. Commit and push
+# 4. Update main.tf with that bucket name
+# Edit: terraform/environments/prod/main.tf (line 22)
+
+# 5. Commit and push
 git add .
 git commit -m "Configure state backend"
 git push origin main
 
-# 4. Done! Deploy as many times as you want - no duplicates!
+# Done! Deploy as many times as you want - no duplicates!
 ```
+
+**NO scripts. NO AWS CLI. Just Terraform.**
 
 ---
 

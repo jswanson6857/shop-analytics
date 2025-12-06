@@ -48,15 +48,19 @@
 unzip revivecrm-production.zip
 cd revivecrm-production
 
-# Create state infrastructure
-bash bootstrap-state.sh
-# Answer "yes" when prompted
+# Create state infrastructure (pure Terraform)
+cd terraform/bootstrap
+terraform init
+terraform apply  # Type: yes
 
-# Script automatically:
-# ✅ Creates S3 bucket
-# ✅ Creates DynamoDB table
-# ✅ Updates main.tf with bucket name
+# Get bucket name
+terraform output state_bucket_name
+
+# Update main.tf with that bucket name
+# Edit: terraform/environments/prod/main.tf (line 22)
 ```
+
+**Pure Terraform - NO scripts, NO AWS CLI!**
 
 ### Every Deployment After:
 

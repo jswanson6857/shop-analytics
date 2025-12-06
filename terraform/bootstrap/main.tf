@@ -24,12 +24,30 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+  
+  # Support explicit credentials (same as main infrastructure)
+  access_key = var.aws_access_key
+  secret_key = var.aws_secret_key
 }
 
 variable "aws_region" {
   description = "AWS region"
   type        = string
   default     = "us-east-1"
+}
+
+variable "aws_access_key" {
+  description = "AWS access key (optional - will use default credentials if not provided)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "aws_secret_key" {
+  description = "AWS secret key (optional - will use default credentials if not provided)"
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 variable "project_name" {
