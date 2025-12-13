@@ -239,14 +239,3 @@ resource "aws_cloudwatch_log_group" "batch_sales" {
 # -----------------------------------------------------------------------------
 # OUTPUTS
 # -----------------------------------------------------------------------------
-output "lambda_functions" {
-  value = {
-    sync_tekmetric      = aws_lambda_function.sync_tekmetric.function_name
-    api_ros             = aws_lambda_function.api_ros.function_name
-    api_contact         = aws_lambda_function.api_contact.function_name
-    api_users           = aws_lambda_function.api_users.function_name
-    api_analytics       = aws_lambda_function.api_analytics.function_name
-    batch_appointments  = aws_lambda_function.batch_appointments.function_name
-    batch_sales         = aws_lambda_function.batch_sales.function_name
-  }
-}
