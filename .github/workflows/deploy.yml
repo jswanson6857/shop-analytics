@@ -32,8 +32,11 @@ jobs:
           # Force unlock if stuck
           terraform force-unlock -force c8673c8f-77ad-6e29-50b4-fe302b9fd051 2>/dev/null || true
           
-          # Apply
-          terraform apply -auto-approve -refresh=true
+          # Sync state with AWS reality first
+          terraform apply -refresh-only -auto-approve
+          
+          # Now apply changes
+          terraform apply -auto-approve
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
