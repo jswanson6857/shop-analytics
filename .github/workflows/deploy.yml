@@ -20,7 +20,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ./terraform/environments/prod
+        working-directory: terraform/environments/prod
     
     outputs:
       api_gateway_url: ${{ steps.tf_output.outputs.api_gateway_url }}
@@ -167,7 +167,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ./frontend
+        working-directory: frontend
     
     steps:
       - name: Checkout
