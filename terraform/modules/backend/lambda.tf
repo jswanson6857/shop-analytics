@@ -62,7 +62,6 @@ resource "aws_lambda_function" "sync_tekmetric" {
     variables = {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
       TEKMETRIC_SECRET_ARN = var.tekmetric_secret_arn
-      AWS_REGION = var.aws_region
     }
   }
 }
@@ -88,7 +87,6 @@ resource "aws_lambda_function" "api_ros" {
   environment {
     variables = {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
-      AWS_REGION = var.aws_region
     }
   }
 }
@@ -116,7 +114,6 @@ resource "aws_lambda_function" "api_contact" {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
       CONTACT_HISTORY_TABLE = aws_dynamodb_table.contact_history.name
       APPOINTMENTS_TABLE = aws_dynamodb_table.appointments.name
-      AWS_REGION = var.aws_region
     }
   }
 }
@@ -142,7 +139,6 @@ resource "aws_lambda_function" "api_users" {
   environment {
     variables = {
       TEKMETRIC_SECRET_ARN = var.tekmetric_secret_arn
-      AWS_REGION = var.aws_region
     }
   }
 }
@@ -170,7 +166,6 @@ resource "aws_lambda_function" "api_analytics" {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
       CONTACT_HISTORY_TABLE = aws_dynamodb_table.contact_history.name
       SALES_TRACKING_TABLE = aws_dynamodb_table.sales_tracking.name
-      AWS_REGION = var.aws_region
     }
   }
 }
@@ -198,7 +193,6 @@ resource "aws_lambda_function" "batch_appointments" {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
       APPOINTMENTS_TABLE = aws_dynamodb_table.appointments.name
       TEKMETRIC_SECRET_ARN = var.tekmetric_secret_arn
-      AWS_REGION = var.aws_region
     }
   }
 }
@@ -226,7 +220,6 @@ resource "aws_lambda_function" "batch_sales" {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
       SALES_TRACKING_TABLE = aws_dynamodb_table.sales_tracking.name
       TEKMETRIC_SECRET_ARN = var.tekmetric_secret_arn
-      AWS_REGION = var.aws_region
     }
   }
 }
