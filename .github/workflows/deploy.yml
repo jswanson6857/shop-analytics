@@ -51,6 +51,20 @@ jobs:
         run: terraform fmt -check
         continue-on-error: true
       
+      - name: Check Backend Configuration
+        id: check_backend
+        working-directory: terraform/environments/prod
+        run: |
+          if grep -q "BUCKET_NAME_FROM_BOOTSTRAP" main.tf; then
+            echo "❌ Backend not configured!"
+            echo "❌ Run the 'Bootstrap State Infrastructure' workflow first!"
+            echo "backend_configured=false" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "✅ Backend configured"
+            echo "backend_configured=true" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Terraform Init
         id: init
         run: terraform init
@@ -75,8 +89,8 @@ jobs:
           TF_VAR_tekmetric_client_id: ${{ secrets.TEKMETRIC_CLIENT_ID }}
           TF_VAR_tekmetric_client_secret: ${{ secrets.TEKMETRIC_CLIENT_SECRET }}
           TF_VAR_tekmetric_shop_id: ${{ secrets.TEKMETRIC_SHOP_ID }}
-          TF_VAR_auth0_domain: ${{ secrets.AUTH0_DOMAIN }}
-          TF_VAR_auth0_client_id: ${{ secrets.AUTH0_CLIENT_ID }}
+          TF_VAR_auth0_domain: ${{ secrets.AUTH0_DOMAIN || secrets.OKTA_ISSUER }}
+          TF_VAR_auth0_client_id: ${{ secrets.AUTH0_CLIENT_ID || secrets.OKTA_CLIENT_ID }}
         continue-on-error: true
       
       - name: Update Pull Request
@@ -122,8 +136,8 @@ jobs:
           TF_VAR_tekmetric_client_id: ${{ secrets.TEKMETRIC_CLIENT_ID }}
           TF_VAR_tekmetric_client_secret: ${{ secrets.TEKMETRIC_CLIENT_SECRET }}
           TF_VAR_tekmetric_shop_id: ${{ secrets.TEKMETRIC_SHOP_ID }}
-          TF_VAR_auth0_domain: ${{ secrets.AUTH0_DOMAIN }}
-          TF_VAR_auth0_client_id: ${{ secrets.AUTH0_CLIENT_ID }}
+          TF_VAR_auth0_domain: ${{ secrets.AUTH0_DOMAIN || secrets.OKTA_ISSUER }}
+          TF_VAR_auth0_client_id: ${{ secrets.AUTH0_CLIENT_ID || secrets.OKTA_CLIENT_ID }}
       
       - name: Get Terraform Outputs
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -182,8 +196,8 @@ jobs:
       - name: Create environment file
         run: |
           echo "REACT_APP_API_URL=${{ needs.terraform.outputs.api_gateway_url }}" > .env.production
-          echo "REACT_APP_AUTH0_DOMAIN=${{ secrets.AUTH0_DOMAIN }}" >> .env.production
-          echo "REACT_APP_AUTH0_CLIENT_ID=${{ secrets.AUTH0_CLIENT_ID }}" >> .env.production
+          echo "REACT_APP_AUTH0_DOMAIN=${{ secrets.AUTH0_DOMAIN || secrets.OKTA_ISSUER }}" >> .env.production
+          echo "REACT_APP_AUTH0_CLIENT_ID=${{ secrets.AUTH0_CLIENT_ID || secrets.OKTA_CLIENT_ID }}" >> .env.production
           echo "Environment file created:"
           cat .env.production
       

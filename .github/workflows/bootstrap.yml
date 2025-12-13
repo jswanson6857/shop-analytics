@@ -1,0 +1,64 @@
+name: Bootstrap State Infrastructure
+
+on:
+  workflow_dispatch:  # Manual trigger only
+  
+jobs:
+  bootstrap:
+    name: Create S3 Backend
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+      
+      - name: Bootstrap State Infrastructure
+        working-directory: terraform/bootstrap
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          terraform init
+          terraform apply -auto-approve
+      
+      - name: Get Bucket Name
+        id: bucket
+        working-directory: terraform/bootstrap
+        run: |
+          BUCKET=$(terraform output -raw state_bucket_name)
+          echo "bucket_name=$BUCKET" >> $GITHUB_OUTPUT
+          echo "## Bootstrap Complete! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 Bucket Created:** \`$BUCKET\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Edit \`terraform/environments/prod/main.tf\` line 23" >> $GITHUB_STEP_SUMMARY
+          echo "2. Replace \`BUCKET_NAME_FROM_BOOTSTRAP\` with: \`$BUCKET\`" >> $GITHUB_STEP_SUMMARY
+          echo "3. Commit and push" >> $GITHUB_STEP_SUMMARY
+          echo "4. Your main deployment workflow will work!" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Update main.tf automatically
+        env:
+          BUCKET: ${{ steps.bucket.outputs.bucket_name }}
+        run: |
+          sed -i "s/BUCKET_NAME_FROM_BOOTSTRAP/$BUCKET/g" terraform/environments/prod/main.tf
+          
+          # Configure git
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          # Commit and push
+          git add terraform/environments/prod/main.tf
+          git commit -m "Configure S3 backend with bucket: $BUCKET" || echo "No changes to commit"
+          git push || echo "Nothing to push"
+      
+      - name: Success Message
+        run: |
+          echo "✅ Bootstrap complete!"
+          echo "✅ main.tf updated automatically!"
+          echo "✅ Ready to deploy - just push your code!"
