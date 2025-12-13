@@ -52,7 +52,7 @@ jobs:
       - name: Build Frontend
         working-directory: frontend
         run: |
-          npm ci
+          npm install
           npm run build
         env:
           REACT_APP_API_URL: ${{ steps.terraform.outputs.api_url }}
