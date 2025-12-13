@@ -38,14 +38,6 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
       
-      - name: Setup Terraform Cloud Credentials
-        run: |
-          cat > ~/.terraformrc << EOFTF
-          credentials "app.terraform.io" {
-            token = "${{ secrets.TF_API_TOKEN }}"
-          }
-          EOFTF
-      
       - name: Terraform Format
         id: fmt
         run: terraform fmt -check
@@ -53,11 +45,16 @@ jobs:
       
       - name: Check Backend Configuration
         id: check_backend
-        working-directory: terraform/environments/prod
         run: |
           if grep -q "BUCKET_NAME_FROM_BOOTSTRAP" main.tf; then
             echo "❌ Backend not configured!"
             echo "❌ Run the 'Bootstrap State Infrastructure' workflow first!"
+            echo "backend_configured=false" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "✅ Backend configured"
+            echo "backend_configured=true" >> $GITHUB_OUTPUT
+          fi
             echo "backend_configured=false" >> $GITHUB_OUTPUT
             exit 1
           else
