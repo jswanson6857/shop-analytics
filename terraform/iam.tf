@@ -32,7 +32,7 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
 # DynamoDB Access Policy
 # -----------------------------------------------------------------------------
 resource "aws_iam_policy" "dynamodb_access" {
-  name        = "${var.project_name}-dynamodb-access-${var.environment}"
+  name        = "${var.project_name}-dynamodb-access-v2-${var.environment}"
   description = "Allow Lambda functions to access DynamoDB tables"
 
   policy = jsonencode({
