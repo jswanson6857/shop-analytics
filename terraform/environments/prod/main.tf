@@ -27,7 +27,7 @@ terraform {
   # 3. Push to deploy
   
   backend "s3" {
-    bucket         = "BUCKET_NAME_FROM_BOOTSTRAP"  # Replace with output from bootstrap!
+    bucket         = "revivecrm-terraform-state-095289934716"
     key            = "production/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true

@@ -24,6 +24,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           terraform init
+          # import.tf will auto-import existing resources if they exist
           terraform apply -auto-approve
       
       - name: Get Bucket Name
