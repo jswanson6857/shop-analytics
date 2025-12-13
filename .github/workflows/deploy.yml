@@ -16,47 +16,47 @@ jobs:
   terraform:
     name: "Deploy Infrastructure"
     runs-on: ubuntu-latest
-
+    
     defaults:
       run:
         shell: bash
-        working-directory: terraform/environments/prod
-
+        working-directory: terraform
+    
     outputs:
       api_gateway_url: ${{ steps.tf_output.outputs.api_gateway_url }}
       s3_bucket: ${{ steps.tf_output.outputs.s3_bucket }}
       cloudfront_url: ${{ steps.tf_output.outputs.cloudfront_url }}
       cloudfront_distribution_id: ${{ steps.tf_output.outputs.cloudfront_distribution_id }}
-
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+      
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
-
+      
       - name: Terraform Format
         id: fmt
         run: terraform fmt -check
         continue-on-error: true
-
+      
       - name: Terraform Init
         id: init
         run: terraform init
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
+      
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
+      
       - name: Terraform Plan
         id: plan
         if: github.event_name == 'pull_request'
@@ -70,7 +70,7 @@ jobs:
           TF_VAR_auth0_domain: ${{ secrets.AUTH0_DOMAIN || secrets.OKTA_ISSUER }}
           TF_VAR_auth0_client_id: ${{ secrets.AUTH0_CLIENT_ID || secrets.OKTA_CLIENT_ID }}
         continue-on-error: true
-
+      
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -input=false
@@ -82,7 +82,7 @@ jobs:
           TF_VAR_tekmetric_shop_id: ${{ secrets.TEKMETRIC_SHOP_ID }}
           TF_VAR_auth0_domain: ${{ secrets.AUTH0_DOMAIN || secrets.OKTA_ISSUER }}
           TF_VAR_auth0_client_id: ${{ secrets.AUTH0_CLIENT_ID || secrets.OKTA_CLIENT_ID }}
-
+      
       - name: Get Terraform Outputs
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         id: tf_output
@@ -91,56 +91,56 @@ jobs:
           echo "s3_bucket=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
           echo "cloudfront_url=$(terraform output -raw cloudfront_url)" >> $GITHUB_OUTPUT
           echo "cloudfront_distribution_id=$(terraform output -raw cloudfront_distribution_id)" >> $GITHUB_OUTPUT
-
+      
   frontend:
     name: "Deploy Frontend"
     needs: terraform
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
+    
     defaults:
       run:
         shell: bash
         working-directory: frontend
-
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+          cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
-
+      
       - name: Install dependencies
         run: npm ci
-
+      
       - name: Build
         env:
           REACT_APP_API_URL: ${{ needs.terraform.outputs.api_gateway_url }}
           REACT_APP_AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.OKTA_ISSUER }}
           REACT_APP_AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID || secrets.OKTA_CLIENT_ID }}
         run: npm run build
-
+      
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-
+      
       - name: Deploy to S3
         run: |
           aws s3 sync build/ s3://${{ needs.terraform.outputs.s3_bucket }}/ --delete
-
+      
       - name: Invalidate CloudFront
         run: |
           aws cloudfront create-invalidation \
             --distribution-id ${{ needs.terraform.outputs.cloudfront_distribution_id }} \
             --paths "/*"
-
+      
       - name: Deployment Summary
         run: |
           echo "## Deployment Successful! 🚀" >> $GITHUB_STEP_SUMMARY
