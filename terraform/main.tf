@@ -84,7 +84,7 @@ resource "aws_secretsmanager_secret_version" "tekmetric_credentials" {
 # ==============================================================================
 
 module "backend" {
-  source = "../../modules/backend"
+  source = "./modules/backend"
 
   project_name         = var.project_name
   environment          = var.environment
@@ -97,7 +97,7 @@ module "backend" {
 # ==============================================================================
 
 module "frontend" {
-  source = "../../modules/frontend"
+  source = "./modules/frontend"
 
   project_name = var.project_name
   environment  = var.environment
