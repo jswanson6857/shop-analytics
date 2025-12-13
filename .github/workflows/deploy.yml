@@ -1,11 +1,12 @@
 name: Deploy ReviveCRM
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger only - run bootstrap first!
+  # Uncomment these after bootstrap completes:
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
 
 env:
   AWS_REGION: us-east-1
