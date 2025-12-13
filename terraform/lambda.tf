@@ -5,43 +5,43 @@
 # Package Lambda functions
 data "archive_file" "sync_tekmetric" {
   type        = "zip"
-  source_dir  = "${path.module}/../../../lambdas/sync-tekmetric"
+  source_dir  = "${path.module}/../lambdas/sync-tekmetric"
   output_path = "${path.module}/.terraform/lambda-packages/sync-tekmetric.zip"
 }
 
 data "archive_file" "api_ros" {
   type        = "zip"
-  source_dir  = "${path.module}/../../../lambdas/api-ros"
+  source_dir  = "${path.module}/../lambdas/api-ros"
   output_path = "${path.module}/.terraform/lambda-packages/api-ros.zip"
 }
 
 data "archive_file" "api_contact" {
   type        = "zip"
-  source_dir  = "${path.module}/../../../lambdas/api-contact"
+  source_dir  = "${path.module}/../lambdas/api-contact"
   output_path = "${path.module}/.terraform/lambda-packages/api-contact.zip"
 }
 
 data "archive_file" "api_users" {
   type        = "zip"
-  source_dir  = "${path.module}/../../../lambdas/api-users"
+  source_dir  = "${path.module}/../lambdas/api-users"
   output_path = "${path.module}/.terraform/lambda-packages/api-users.zip"
 }
 
 data "archive_file" "api_analytics" {
   type        = "zip"
-  source_dir  = "${path.module}/../../../lambdas/api-analytics"
+  source_dir  = "${path.module}/../lambdas/api-analytics"
   output_path = "${path.module}/.terraform/lambda-packages/api-analytics.zip"
 }
 
 data "archive_file" "batch_appointments" {
   type        = "zip"
-  source_dir  = "${path.module}/../../../lambdas/batch-appointments"
+  source_dir  = "${path.module}/../lambdas/batch-appointments"
   output_path = "${path.module}/.terraform/lambda-packages/batch-appointments.zip"
 }
 
 data "archive_file" "batch_sales" {
   type        = "zip"
-  source_dir  = "${path.module}/../../../lambdas/batch-sales"
+  source_dir  = "${path.module}/../lambdas/batch-sales"
   output_path = "${path.module}/.terraform/lambda-packages/batch-sales.zip"
 }
 
@@ -61,7 +61,8 @@ resource "aws_lambda_function" "sync_tekmetric" {
   environment {
     variables = {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
-      TEKMETRIC_SECRET_ARN = var.tekmetric_secret_arn
+      TEKMETRIC_SECRET_ARN = aws_secretsmanager_secret.tekmetric_credentials.arn
+      AWS_REGION = var.aws_region
     }
   }
 }
@@ -87,6 +88,7 @@ resource "aws_lambda_function" "api_ros" {
   environment {
     variables = {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
+      AWS_REGION = var.aws_region
     }
   }
 }
@@ -114,6 +116,7 @@ resource "aws_lambda_function" "api_contact" {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
       CONTACT_HISTORY_TABLE = aws_dynamodb_table.contact_history.name
       APPOINTMENTS_TABLE = aws_dynamodb_table.appointments.name
+      AWS_REGION = var.aws_region
     }
   }
 }
@@ -138,7 +141,8 @@ resource "aws_lambda_function" "api_users" {
   
   environment {
     variables = {
-      TEKMETRIC_SECRET_ARN = var.tekmetric_secret_arn
+      TEKMETRIC_SECRET_ARN = aws_secretsmanager_secret.tekmetric_credentials.arn
+      AWS_REGION = var.aws_region
     }
   }
 }
@@ -166,6 +170,7 @@ resource "aws_lambda_function" "api_analytics" {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
       CONTACT_HISTORY_TABLE = aws_dynamodb_table.contact_history.name
       SALES_TRACKING_TABLE = aws_dynamodb_table.sales_tracking.name
+      AWS_REGION = var.aws_region
     }
   }
 }
@@ -192,7 +197,8 @@ resource "aws_lambda_function" "batch_appointments" {
     variables = {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
       APPOINTMENTS_TABLE = aws_dynamodb_table.appointments.name
-      TEKMETRIC_SECRET_ARN = var.tekmetric_secret_arn
+      TEKMETRIC_SECRET_ARN = aws_secretsmanager_secret.tekmetric_credentials.arn
+      AWS_REGION = var.aws_region
     }
   }
 }
@@ -219,7 +225,8 @@ resource "aws_lambda_function" "batch_sales" {
     variables = {
       REPAIR_ORDERS_TABLE = aws_dynamodb_table.repair_orders.name
       SALES_TRACKING_TABLE = aws_dynamodb_table.sales_tracking.name
-      TEKMETRIC_SECRET_ARN = var.tekmetric_secret_arn
+      TEKMETRIC_SECRET_ARN = aws_secretsmanager_secret.tekmetric_credentials.arn
+      AWS_REGION = var.aws_region
     }
   }
 }
@@ -227,4 +234,19 @@ resource "aws_lambda_function" "batch_sales" {
 resource "aws_cloudwatch_log_group" "batch_sales" {
   name              = "/aws/lambda/${aws_lambda_function.batch_sales.function_name}"
   retention_in_days = 14
+}
+
+# -----------------------------------------------------------------------------
+# OUTPUTS
+# -----------------------------------------------------------------------------
+output "lambda_functions" {
+  value = {
+    sync_tekmetric      = aws_lambda_function.sync_tekmetric.function_name
+    api_ros             = aws_lambda_function.api_ros.function_name
+    api_contact         = aws_lambda_function.api_contact.function_name
+    api_users           = aws_lambda_function.api_users.function_name
+    api_analytics       = aws_lambda_function.api_analytics.function_name
+    batch_appointments  = aws_lambda_function.batch_appointments.function_name
+    batch_sales         = aws_lambda_function.batch_sales.function_name
+  }
 }

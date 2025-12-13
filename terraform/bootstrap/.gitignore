@@ -1,9 +1,0 @@
-# Terraform files
-.terraform/
-*.tfstate
-*.tfstate.backup
-.terraform.lock.hcl
-
-# But keep the bootstrap state in git (it's needed!)
-# If you prefer not to commit it, comment this out
-!bootstrap.tfstate

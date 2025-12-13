@@ -1,3 +1,9 @@
+variable "aws_region" {
+  description = "AWS region"
+  type        = string
+  default     = "us-east-1"
+}
+
 variable "project_name" {
   description = "Project name"
   type        = string
@@ -5,15 +11,9 @@ variable "project_name" {
 }
 
 variable "environment" {
-  description = "Environment name"
+  description = "Environment (production/staging/development)"
   type        = string
-  default     = "prod"
-}
-
-variable "aws_region" {
-  description = "AWS region"
-  type        = string
-  default     = "us-east-1"
+  default     = "production"
 }
 
 variable "tekmetric_client_id" {
@@ -31,7 +31,6 @@ variable "tekmetric_client_secret" {
 variable "tekmetric_shop_id" {
   description = "Tekmetric shop ID"
   type        = string
-  sensitive   = true
 }
 
 variable "auth0_domain" {
@@ -42,19 +41,4 @@ variable "auth0_domain" {
 variable "auth0_client_id" {
   description = "Auth0 client ID"
   type        = string
-}
-
-# AWS credentials (only for CI/CD - not needed for local with AWS CLI)
-variable "aws_access_key" {
-  description = "AWS access key (for CI/CD)"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "aws_secret_key" {
-  description = "AWS secret key (for CI/CD)"
-  type        = string
-  default     = ""
-  sensitive   = true
 }
