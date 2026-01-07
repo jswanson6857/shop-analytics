@@ -63,7 +63,7 @@ async function getAccessToken(credentials) {
 async function fetchUsers(accessToken, shopId) {
   const options = {
     hostname: 'shop.tekmetric.com',
-    path: `/api/v1/employees?shopId=${shopId}`,
+    path: `/api/v1/employees?shop=${shopId}`,
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${accessToken}`,

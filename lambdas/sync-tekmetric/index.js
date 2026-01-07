@@ -100,18 +100,18 @@ async function getAccessToken(credentials) {
 async function fetchRepairOrders(accessToken, shopId) {
   console.log('📥 Fetching repair orders from Tekmetric...');
   
-  // Get ROs from last 90 days that are Posted
+  // Get ROs from last 90 days that are Posted (status ID 5)
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - 90);
   const startDateStr = startDate.toISOString().split('T')[0];
   
   console.log('📅 Date range: ' + startDateStr + ' to today');
   console.log('🏪 Shop ID: ' + shopId);
-  console.log('📤 Request: GET /api/v1/repair-orders?shopId=' + shopId + '&postedStartDate=' + startDateStr + '&status=Posted');
+  console.log('📤 Request: GET /api/v1/repair-orders?shop=' + shopId + '&postedDateStart=' + startDateStr + '&repairOrderStatusId=5');
   
   const options = {
     hostname: 'shop.tekmetric.com',
-    path: `/api/v1/repair-orders?shopId=${shopId}&postedStartDate=${startDateStr}&status=Posted`,
+    path: `/api/v1/repair-orders?shop=${shopId}&postedDateStart=${startDateStr}&repairOrderStatusId=5`,
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -147,7 +147,7 @@ async function fetchRepairOrders(accessToken, shopId) {
 async function fetchROJobs(accessToken, shopId, roId) {
   const options = {
     hostname: 'shop.tekmetric.com',
-    path: `/api/v1/repair-orders/${roId}/jobs?shopId=${shopId}`,
+    path: `/api/v1/jobs?shop=${shopId}&repairOrderId=${roId}`,
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -163,8 +163,8 @@ async function fetchROJobs(accessToken, shopId, roId) {
 function extractJobCategories(jobs) {
   const categories = new Set();
   jobs.forEach(job => {
-    if (job.jobCategory) {
-      categories.add(job.jobCategory);
+    if (job.jobCategoryName) {
+      categories.add(job.jobCategoryName);
     }
   });
   return Array.from(categories);
@@ -183,16 +183,22 @@ async function processRepairOrder(ro, jobs) {
   
   // Calculate totals
   const declinedValue = declinedJobs.reduce((sum, job) => {
-    const laborTotal = (job.laborHours || 0) * (job.laborRate || 0);
-    const partsTotal = (job.parts || []).reduce((pSum, part) => pSum + (part.retail || 0) * (part.quantity || 1), 0);
-    const feesTotal = (job.fees || []).reduce((fSum, fee) => fSum + (fee.amount || 0), 0);
+    const laborTotal = (job.labor || []).reduce((lSum, labor) => 
+      lSum + ((labor.hours || 0) * (labor.rate || 0)), 0);
+    const partsTotal = (job.parts || []).reduce((pSum, part) => 
+      pSum + ((part.retail || 0) * (part.quantity || 1)), 0);
+    const feesTotal = (job.fees || []).reduce((fSum, fee) => 
+      fSum + (fee.total || 0), 0);
     return sum + laborTotal + partsTotal + feesTotal;
   }, 0);
   
   const approvedValue = approvedJobs.reduce((sum, job) => {
-    const laborTotal = (job.laborHours || 0) * (job.laborRate || 0);
-    const partsTotal = (job.parts || []).reduce((pSum, part) => pSum + (part.retail || 0) * (part.quantity || 1), 0);
-    const feesTotal = (job.fees || []).reduce((fSum, fee) => fSum + (fee.amount || 0), 0);
+    const laborTotal = (job.labor || []).reduce((lSum, labor) => 
+      lSum + ((labor.hours || 0) * (labor.rate || 0)), 0);
+    const partsTotal = (job.parts || []).reduce((pSum, part) => 
+      pSum + ((part.retail || 0) * (part.quantity || 1)), 0);
+    const feesTotal = (job.fees || []).reduce((fSum, fee) => 
+      fSum + (fee.total || 0), 0);
     return sum + laborTotal + partsTotal + feesTotal;
   }, 0);
   
@@ -202,12 +208,13 @@ async function processRepairOrder(ro, jobs) {
   // Build RO object for DynamoDB
   const roData = {
     ro_id: `RO_${ro.id}`,
-    ro_number: ro.number || ro.id.toString(),
+    ro_number: ro.repairOrderNumber || ro.id.toString(),
     tekmetric_ro_id: ro.id,
     status: 'FOLLOW_UP_BOARD', // New declined jobs start here
-    customer_name: ro.customer?.name || 'Unknown',
-    customer_phone: ro.customer?.phone || '',
-    customer_email: ro.customer?.email || '',
+    customer_name: ro.customer?.name || (ro.customer?.firstName && ro.customer?.lastName ? 
+      `${ro.customer.firstName} ${ro.customer.lastName}` : 'Unknown'),
+    customer_phone: ro.customer?.phone?.[0]?.number || ro.customer?.phone || '',
+    customer_email: ro.customer?.email?.[0] || ro.customer?.email || '',
     vehicle: {
       id: ro.vehicle?.id,
       year: ro.vehicle?.year,
@@ -219,33 +226,45 @@ async function processRepairOrder(ro, jobs) {
     service_writer: ro.serviceWriter?.name || ro.createdBy?.name || 'Unknown',
     service_writer_id: ro.serviceWriter?.id || ro.createdBy?.id,
     posted_date: ro.postedDate || new Date().toISOString(),
-    declined_jobs: declinedJobs.map(job => ({
-      id: job.id,
-      name: job.name,
-      description: job.description || '',
-      category: job.jobCategory || 'Other',
-      labor_hours: job.laborHours || 0,
-      labor_rate: job.laborRate || 0,
-      labor_total: (job.laborHours || 0) * (job.laborRate || 0),
-      parts: (job.parts || []).map(part => ({
-        id: part.id,
-        name: part.name,
-        part_number: part.partNumber || '',
-        quantity: part.quantity || 1,
-        cost: part.cost || 0,
-        retail: part.retail || 0,
-        total: (part.retail || 0) * (part.quantity || 1)
-      })),
-      fees: (job.fees || []).map(fee => ({
-        name: fee.name,
-        amount: fee.amount || 0
-      })),
-      subtotal: (job.laborHours || 0) * (job.laborRate || 0) + 
-                (job.parts || []).reduce((sum, p) => sum + (p.retail || 0) * (p.quantity || 1), 0) +
-                (job.fees || []).reduce((sum, f) => sum + (f.amount || 0), 0),
-      tax: job.tax || 0,
-      total: job.total || 0
-    })),
+    declined_jobs: declinedJobs.map(job => {
+      const laborArray = job.labor || [];
+      const laborTotal = laborArray.reduce((sum, l) => sum + ((l.hours || 0) * (l.rate || 0)), 0);
+      const partsArray = job.parts || [];
+      const partsTotal = partsArray.reduce((sum, p) => sum + ((p.retail || 0) * (p.quantity || 1)), 0);
+      const feesArray = job.fees || [];
+      const feesTotal = feesArray.reduce((sum, f) => sum + (f.total || 0), 0);
+      
+      return {
+        id: job.id,
+        name: job.name,
+        description: job.note || '',
+        category: job.jobCategoryName || 'Other',
+        labor: laborArray.map(l => ({
+          name: l.name,
+          hours: l.hours || 0,
+          rate: l.rate || 0,
+          total: (l.hours || 0) * (l.rate || 0)
+        })),
+        labor_total: laborTotal,
+        parts: partsArray.map(part => ({
+          id: part.id,
+          name: part.name,
+          part_number: part.partNumber || '',
+          quantity: part.quantity || 1,
+          cost: part.cost || 0,
+          retail: part.retail || 0,
+          total: (part.retail || 0) * (part.quantity || 1)
+        })),
+        parts_total: partsTotal,
+        fees: feesArray.map(fee => ({
+          name: fee.name,
+          total: fee.total || 0
+        })),
+        fees_total: feesTotal,
+        subtotal: laborTotal + partsTotal + feesTotal,
+        total: job.subtotal || (laborTotal + partsTotal + feesTotal)
+      };
+    }),
     approved_jobs: approvedJobs.map(job => ({
       id: job.id,
       name: job.name,
