@@ -4,8 +4,30 @@ const { DynamoDBDocumentClient, PutCommand, QueryCommand, BatchWriteCommand } = 
 const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
 
 const dynamoClient = new DynamoDBClient({});
-const docClient = DynamoDBDocumentClient.from(dynamoClient);
+const docClient = DynamoDBDocumentClient.from(dynamoClient, {
+  marshallOptions: {
+    removeUndefinedValues: true,
+    convertEmptyValues: false
+  }
+});
 const secretsClient = new SecretsManagerClient({});
+
+// Helper to remove undefined values from objects
+function removeUndefined(obj) {
+  if (Array.isArray(obj)) {
+    return obj.map(removeUndefined).filter(v => v !== undefined);
+  }
+  if (obj !== null && typeof obj === 'object') {
+    return Object.entries(obj).reduce((acc, [key, value]) => {
+      const cleaned = removeUndefined(value);
+      if (cleaned !== undefined) {
+        acc[key] = cleaned;
+      }
+      return acc;
+    }, {});
+  }
+  return obj;
+}
 
 // Get Tekmetric credentials from Secrets Manager
 async function getTekmetricCredentials() {
@@ -347,11 +369,15 @@ exports.handler = async (event) => {
         const roData = await processRepairOrder(ro, jobs);
         
         if (roData) {
+          // Remove any undefined values before storing
+          const cleanedData = removeUndefined(roData);
+          
           await docClient.send(new PutCommand({
             TableName: process.env.REPAIR_ORDERS_TABLE,
-            Item: roData
+            Item: cleanedData
           }));
           newROsCount++;
+          console.log(`✅ Stored RO ${ro.id}`);
         } else {
           skippedCount++; // No declined jobs
         }
