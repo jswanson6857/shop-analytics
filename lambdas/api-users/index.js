@@ -1,7 +1,7 @@
 const https = require('https');
 const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
 
-const secretsClient = new SecretsManagerClient({ region: process.env.AWS_REGION });
+const secretsClient = new SecretsManagerClient({});
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
