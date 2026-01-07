@@ -85,6 +85,11 @@ async function getJobCategories(status = 'FOLLOW_UP_BOARD') {
 // Main handler
 exports.handler = async (event) => {
   console.log('📥 API request:', JSON.stringify(event, null, 2));
+  console.log('🔧 Environment variables:', Object.keys(process.env).filter(k => k.includes('TABLE') || k.includes('SECRET')).reduce((obj, k) => ({...obj, [k]: process.env[k]}), {}));
+  console.log('🔧 Environment:', {
+    REPAIR_ORDERS_TABLE: process.env.REPAIR_ORDERS_TABLE,
+    AWS_REGION: process.env.AWS_REGION
+  });
   
   // Handle OPTIONS for CORS
   if (event.httpMethod === 'OPTIONS') {
@@ -95,9 +100,13 @@ exports.handler = async (event) => {
     const queryParams = event.queryStringParameters || {};
     const { status, view, category, serviceWriter, dateFilter } = queryParams;
     
+    console.log('📋 Query params:', queryParams);
+    
     // Get job categories view
     if (view === 'categories') {
+      console.log('🏷️ Fetching categories for status:', status || 'FOLLOW_UP_BOARD');
       const categories = await getJobCategories(status || 'FOLLOW_UP_BOARD');
+      console.log('✅ Categories fetched:', categories.length);
       
       return {
         statusCode: 200,
@@ -110,9 +119,12 @@ exports.handler = async (event) => {
     }
     
     // Get ROs
+    console.log('📊 Fetching ROs with status:', status);
     let ros = status ? 
       await getROsByStatus(status) : 
       (await docClient.send(new ScanCommand({ TableName: process.env.REPAIR_ORDERS_TABLE }))).Items || [];
+    
+    console.log('✅ ROs fetched:', ros.length);
     
     // Filter by category
     if (category && category !== 'all') {
@@ -150,12 +162,16 @@ exports.handler = async (event) => {
     
   } catch (error) {
     console.error('❌ Error:', error);
+    console.error('❌ Error stack:', error.stack);
+    console.error('❌ Error name:', error.name);
+    console.error('❌ Error message:', error.message);
     return {
       statusCode: 500,
       headers,
       body: JSON.stringify({
         success: false,
-        error: error.message
+        error: error.message,
+        errorType: error.name
       })
     };
   }

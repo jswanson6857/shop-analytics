@@ -19,23 +19,39 @@ async function getTekmetricCredentials() {
 // Make HTTPS request helper
 function makeRequest(options, postData = null) {
   return new Promise((resolve, reject) => {
+    console.log('🌐 Making request:', options.method, options.hostname + options.path);
+    
     const req = https.request(options, (res) => {
       let data = '';
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
+        console.log('📡 Response status:', res.statusCode);
+        console.log('📡 Response headers:', JSON.stringify(res.headers, null, 2));
+        
         if (res.statusCode >= 200 && res.statusCode < 300) {
           try {
-            resolve(JSON.parse(data));
+            const parsed = JSON.parse(data);
+            resolve(parsed);
           } catch (e) {
+            console.log('📄 Raw response (not JSON):', data);
             resolve(data);
           }
         } else {
+          console.error('❌ HTTP Error:', res.statusCode);
+          console.error('❌ Response body:', data);
           reject(new Error(`HTTP ${res.statusCode}: ${data}`));
         }
       });
     });
-    req.on('error', reject);
+    
+    req.on('error', (error) => {
+      console.error('❌ Request error:', error.message);
+      console.error('❌ Full error:', error);
+      reject(error);
+    });
+    
     if (postData) {
+      console.log('📤 POST data:', postData);
       req.write(postData);
     }
     req.end();
@@ -45,9 +61,17 @@ function makeRequest(options, postData = null) {
 // Get OAuth token from Tekmetric
 async function getAccessToken(credentials) {
   console.log('🔐 Getting OAuth token from Tekmetric...');
+  console.log('📋 Credentials:', { 
+    client_id: credentials.client_id, 
+    client_secret: credentials.client_secret ? '***' + credentials.client_secret.slice(-4) : 'MISSING',
+    shop_id: credentials.shop_id
+  });
   
   const basicAuth = Buffer.from(`${credentials.client_id}:${credentials.client_secret}`).toString('base64');
   const postData = 'grant_type=client_credentials';
+  
+  console.log('📤 Request to: https://shop.tekmetric.com/api/v1/oauth/token');
+  console.log('📤 Auth header: Basic ' + basicAuth.substring(0, 20) + '...');
   
   const options = {
     hostname: 'shop.tekmetric.com',
@@ -60,9 +84,16 @@ async function getAccessToken(credentials) {
     }
   };
   
-  const response = await makeRequest(options, postData);
-  console.log('✅ Got access token');
-  return response.access_token;
+  try {
+    const response = await makeRequest(options, postData);
+    console.log('✅ Got access token:', response.access_token ? 'YES (length: ' + response.access_token.length + ')' : 'NO');
+    console.log('📊 Token response:', JSON.stringify(response, null, 2));
+    return response.access_token;
+  } catch (error) {
+    console.error('❌ OAuth failed:', error.message);
+    console.error('❌ Full error:', error);
+    throw error;
+  }
 }
 
 // Fetch repair orders from Tekmetric
@@ -74,6 +105,10 @@ async function fetchRepairOrders(accessToken, shopId) {
   startDate.setDate(startDate.getDate() - 90);
   const startDateStr = startDate.toISOString().split('T')[0];
   
+  console.log('📅 Date range: ' + startDateStr + ' to today');
+  console.log('🏪 Shop ID: ' + shopId);
+  console.log('📤 Request: GET /api/v1/repair-orders?shopId=' + shopId + '&postedStartDate=' + startDateStr + '&status=Posted');
+  
   const options = {
     hostname: 'shop.tekmetric.com',
     path: `/api/v1/repair-orders?shopId=${shopId}&postedStartDate=${startDateStr}&status=Posted`,
@@ -84,9 +119,28 @@ async function fetchRepairOrders(accessToken, shopId) {
     }
   };
   
-  const response = await makeRequest(options);
-  console.log(`✅ Fetched ${response.content?.length || 0} repair orders`);
-  return response.content || [];
+  try {
+    const response = await makeRequest(options);
+    const count = response.content?.length || 0;
+    console.log(`✅ Fetched ${count} repair orders from Tekmetric`);
+    
+    if (count === 0) {
+      console.log('⚠️ WARNING: No repair orders found!');
+      console.log('⚠️ This could mean:');
+      console.log('   - No Posted ROs in last 90 days');
+      console.log('   - Wrong shop ID');
+      console.log('   - Wrong date format');
+      console.log('📊 Full response:', JSON.stringify(response, null, 2));
+    } else {
+      console.log('📊 Sample RO:', JSON.stringify(response.content[0], null, 2));
+    }
+    
+    return response.content || [];
+  } catch (error) {
+    console.error('❌ Fetch ROs failed:', error.message);
+    console.error('❌ Full error:', error);
+    throw error;
+  }
 }
 
 // Fetch jobs for a specific RO
@@ -215,15 +269,38 @@ async function processRepairOrder(ro, jobs) {
 // Main handler
 exports.handler = async (event) => {
   console.log('🚀 Starting Tekmetric sync...');
+  console.log('📋 Event:', JSON.stringify(event, null, 2));
+  console.log('🔧 Environment:', {
+    REPAIR_ORDERS_TABLE: process.env.REPAIR_ORDERS_TABLE,
+    TEKMETRIC_SECRET_ARN: process.env.TEKMETRIC_SECRET_ARN
+  });
   
   try {
     // Get credentials
+    console.log('📦 Getting credentials from Secrets Manager...');
     const credentials = await getTekmetricCredentials();
+    console.log('✅ Credentials loaded');
+    
     const accessToken = await getAccessToken(credentials);
+    console.log('✅ Access token obtained');
     
     // Fetch ROs
     const repairOrders = await fetchRepairOrders(accessToken, credentials.shop_id);
     console.log(`📊 Processing ${repairOrders.length} repair orders...`);
+    
+    if (repairOrders.length === 0) {
+      console.log('⚠️ NO REPAIR ORDERS TO PROCESS');
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          success: true,
+          message: 'No repair orders found in Tekmetric for the last 90 days',
+          newROsCount: 0,
+          skippedCount: 0,
+          totalProcessed: 0
+        })
+      };
+    }
     
     let newROsCount = 0;
     let skippedCount = 0;
